@@ -14,3 +14,6 @@ npm-debug.log*
 
 # transfer slips are personal records — never commit them
 *.mandate-slip
+
+# portable repo snapshots
+*.bundle
