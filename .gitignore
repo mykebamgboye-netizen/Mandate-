@@ -17,3 +17,5 @@ npm-debug.log*
 
 # portable repo snapshots
 *.bundle
+supabase/.env.setup
+supabase/.temp/

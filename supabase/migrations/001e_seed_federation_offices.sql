@@ -1,0 +1,38 @@
+-- seed 001e: playable offices — federation-wide, every tier/post playable
+INSERT INTO federation_offices (id, tier, post, route, jurisdiction, term_note, powers, revenue_map, authority_note)
+VALUES
+('federal/president','federal','President','elected','nation','4-year term; Commander-in-Chief by convention.','["sign.memo","appoint.minister","receive.faac","budget.allocate","command.convention"]','{"faac_net":true,"derivation":true,"federal_refund":true}','ss.130-134 · Commander-in-Chief by convention'),
+('federal/vice-president','federal','Vice President','elected','nation','On the ticket with the President.','["sign.memo","preside.senate","receive.faac"]','{"faac_net":true}','ss.134 · ticket with President'),
+('federal/minister','federal','Minister','appointed','ministry','Senate-confirmed; serves at the pleasure of the President.','["propose.memo","allocate.ministry","receive.appropriation"]','{"appropriation":true,"ministry_budget":true}','ss.170-174 · appointment + Senate confirmation'),
+('federal/sgf','federal','Secretary to the Government of the Federation','appointed','nation','Head of the civil service of the federation.','["coordinate.ministries","receive.appropriation"]','{"appropriation":true}','ss.170 · appointment'),
+('federal/nsa','federal','National Security Adviser','appointed','nation','Coordinates security architecture; no operational command.','["coordinate.security","receive.classified"]','{"security_coordination":true}','National Security Act · coordination, not command'),
+('federal/agency-dg','federal','Agency DG / Commissioner (statutory)','appointed','agency','Serves on appointment; Senate confirmation where required.','["propose.memo","receive.appropriation"]','{"appropriation":true,"agency_budget":true}','varies by agency statute'),
+('federal/senator','federal','Senator','elected','senatorial_district','4-year term; 3 Senators per state + 1 for the FCT.','["legislate","oversight","budget.scrutinize","receive.constituency"]','{"constituency_project":true,"national_appropriation_approve":true}','ss.44-46 · Senate; s.90 · NASS'),
+('federal/rep','federal','Member of the House of Representatives','elected','constituency','4-year term; 360 Reps by constituency.','["legislate","oversight","budget.scrutinize","receive.constituency"]','{"constituency_project":true}','ss.44-46 · House; s.90 · NASS'),
+('federal/senate-leader','federal','Senate Leader','elected','senate','Elected by the Senate; sets legislative agenda.','["legislate","set.agenda","oversight","receive.faac"]','{"legislative_agenda":true}','s.50 · Senate leadership'),
+('federal/whip-senate','federal','Senate Whip','elected','senate','Whips the Senate caucus; counts votes.','["whip","count.votes","receive.party"]','{"party_whip":true}','party practice · not statutory'),
+('state/governor','state','Governor','elected','state','4-year term; Chief Executive of the State; appoints Commissioners under s.192.','["sign.memo","appoint.commissioner","receive.faac","budget.allocate","deploy.request","oversight.lga"]','{"faac_net":true,"igr":true,"state_wages":true,"state_capex":true,"derivation":true}','ss.176 · Governor; s.162 · Federation Account; ss.121-125 · State Appropriation; s.192 · Commissioners'),
+('state/deputy-governor','state','Deputy Governor','elected','state','On the ticket with the Governor.','["sign.memo","receive.faac","budget.allocate"]','{"faac_net":true,"igr":true,"state_wages":true}','ss.176 · ticket with Governor'),
+('state/commissioner','state','Commissioner','appointed','ministry','Appointed by the Governor under s.192; collectively responsible through the Governor.','["propose.memo","allocate.ministry","receive.appropriation","oversight.lga"]','{"state_wages":true,"state_capex":true,"appropriation":true}','s.192 · Commissioners; ss.121-125 · Appropriation'),
+('state/agent','state','Special Adviser / Senior Special Assistant','appointed','office','Appointed; influence by access, no enumerated power.','["propose.memo","receive.intelligence"]','{"access":true}','appointment by the Governor; no statutory power'),
+('state/perm-sec','state','Permanent Secretary','appointed','ministry','Head of the civil service in a ministry; implements policy.','["implement.policy","receive.appropriation"]','{"state_wages":true,"appropriation":true}','ss.191-192 · State civil service'),
+('state/ho-s','state','Head of Service','appointed','state','Head of the state civil service.','["coordinate.civil-service","receive.appropriation"]','{"state_wages":true,"appropriation":true}','ss.191-192 · State civil service'),
+('state/ag','state','Attorney-General of the State','appointed','state','Chief law officer of the state.','["advise.legal","receive.legal"]','{"legal_advise":true}','s.204 · Attorney-General of the State'),
+('state/assembly-member','state','Member of the State House of Assembly','elected','constituency','4-year term; passes state laws and approves constitutional amendments.','["legislate","oversight","budget.scrutinize","receive.constituency"]','{"constituency_project":true,"state_appropriation_approve":true}','ss.90 · State House of Assembly; ss.121-125 · Appropriation; s.285 · Tribunals'),
+('state/assembly-speaker','state','Speaker of the State House of Assembly','elected','house','Elected by the House; presides and certifies legislation.','["preside.house","certify.legislation","oversight","receive.faac"]','{"legislation_certify":true}','ss.90 · House leadership'),
+('local/chairman','local','Chairman, Local Government','elected','lga','Chairman of a local council; fiscal autonomy contested in practice.','["allocate.lga","receive.lga","propose.memo","oversight.ward"]','{"lga_budget":true,"lga_igr":true,"lga_faac_via_joint":true}','ss.7-8 · LG structure; fiscal autonomy contested — caretaker chairmen possible'),
+('local/vice-chairman','local','Vice Chairman, Local Government','elected','lga','On the ticket with the Chairman.','["allocate.lga","receive.lga"]','{"lga_budget":true,"lga_igr":true}','ticket with Chairman'),
+('local/councillor','local','Councillor','elected','ward','Representative of a ward; participates in council decisions.','["legislate.lga","oversight.ward","receive.constituency"]','{"ward_project":true,"constituency_project":true}','ss.7-8 · LG council'),
+('local/caretaker-chairman','local','Caretaker Chairman (appointed)','appointed','lga','Federal/state-appointed LG boss where elected councils are not in place.','["allocate.lga","receive.lga","propose.memo"]','{"lga_budget":true,"lga_igr":true}','appointment where elected council is absent'),
+('party/state-chair','party','State Party Chairman','nomination','party','Controls party structure and primaries in the state.','["run.primaries","control.structure","receive.party","endorse"]','{"party_structure":true,"endorsement":true}','party practice · not public office'),
+('party/ward-captain','party','Ward Chairman / Party Organiser','nomination','ward','Controls the ward; machines money and turnout.','["run.primaries","control.structure","receive.party"]','{"party_structure":true,"ward_machine":true}','party practice · not public office'),
+('party/godfather','party','Godfather / Party Elder','nomination','faction','Outside office but influences appointments and tickets.','["endorse","control.structure","receive.patronage","open.accounts"]','{"endorsement":true,"patronage":true,"godfather":true}','patronage practice · not public office')
+ON CONFLICT (id) DO UPDATE SET
+  tier=EXCLUDED.tier,
+  post=EXCLUDED.post,
+  route=EXCLUDED.route,
+  jurisdiction=EXCLUDED.jurisdiction,
+  term_note=EXCLUDED.term_note,
+  powers=EXCLUDED.powers,
+  revenue_map=EXCLUDED.revenue_map,
+  authority_note=EXCLUDED.authority_note;

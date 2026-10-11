@@ -1,0 +1,16 @@
+[project]
+# Project ref for https://eechinfurzvfinobuyyg.supabase.co
+project_id = "eechinfurzvfinobuyyg"
+
+[db]
+# Remote database password — used by `supabase link` and `supabase db push`.
+# Do not commit real values here; set DATABASE_PASSWORD in supabase/.env.setup instead.
+# password = ""
+
+[migrations]
+# The CLI looks for migration sql files under supabase/migrations/ in timestamp order.
+# Our one-time setup migration + seed files live there.
+
+[seed]
+# Combined seed entry point for the one-time federation setup.
+sql = "supabase/seed_combined.sql"

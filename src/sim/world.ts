@@ -1,5 +1,6 @@
 /* World container + golden-replay hash (§3.1, §3.4). */
 import { Ledger, nairaToKobo, type AccountId } from './ledger'
+import { OPENING_BALANCE } from '../content'
 import { makeStreams, type Streams } from './rng'
 import { stateHash } from './hash'
 import { beliefKey, type PerceptionEvent, updatePerception, type BP } from './perception'
@@ -12,7 +13,7 @@ export interface SimWorld extends World {
 
 export const OPENING_ACCOUNTS: Record<AccountId, bigint> = {
   mint: 0n,
-  treasury: nairaToKobo('62,140,918,000'),
+  treasury: nairaToKobo(OPENING_BALANCE),
 }
 
 export function createWorld(seed: number): SimWorld {

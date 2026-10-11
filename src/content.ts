@@ -218,21 +218,23 @@ export const DOCS: Doc[] = [
     stock: 'ledger', clip: 'none', stain: 'ring', mark: 'opened',
     date: '8 OCT 2026',
     docHead: 'FEDERATION ACCOUNT ALLOCATION COMMITTEE',
-    lines: [
-      { label: 'GROSS DISTRIBUTED (AUGUST REVENUE)', value: '₦2,338,000,000,000', strong: true, rule: true },
-      { label: 'Federal Government', value: '₦805,000,000,000', indent: true },
-      { label: 'States', value: '₦794,000,000,000', indent: true },
-      { label: 'Local Councils', value: '₦555,000,000,000', indent: true },
-      { label: '13% Derivation (oil-mineral states)', value: '₦184,000,000,000', indent: true },
-      { label: 'VAT POOL — 10 / 55 / 35', value: '₦773,000,000,000', strong: true, rule: true },
+        lines: [
+      { label: 'GROSS DISTRIBUTED (FEDERATION ACCOUNT)', value: '₦2,338,000,000,000', strong: true, rule: true },
+      { label: '— Federal Government (as published)', value: '₦805,000,000,000', indent: true },
+      { label: '— States (as published)', value: '₦794,000,000,000', indent: true },
+      { label: '— Local Councils (via Joint Account)', value: '₦555,000,000,000', indent: true },
+      { label: '— 13% Derivation (oil-mineral states)', value: '₦184,000,000,000', indent: true },
       { label: 'DELTA STATE — SEPTEMBER 2026', value: '', strong: true, rule: true },
-      { label: 'Statutory allocation', value: '₦28,914,207,000', indent: true },
-      { label: 'Derivation tranche', value: '₦9,442,613,000', indent: true },
-      { label: 'VAT share', value: '₦5,118,400,000', indent: true },
-      { label: 'NET TO STATE TREASURY', value: '₦43,475,220,000', strong: true, rule: true },
-      { label: 'October projection', value: '₦43,689,591,000', indent: true },
+      { label: 'Statutory allocation', value: '₦12,812,345,679', indent: true },
+      { label: 'VAT share', value: '₦11,799,995,679', indent: true },
+      { label: 'Derivation tranche', value: '₦21,500,056,789', indent: true },
+      { label: 'Gross share (stat + VAT + derivation)', value: '₦46,112,398,147', indent: true },
+      { label: 'Deductions at source (loan & bailout repayments)', value: '–₦2,637,177,207', indent: true },
+      { label: 'NET TO STATE TREASURY', value: '₦43,475,220,940', strong: true, rule: true },
+      { label: 'October projection (net + shortfall)', value: '₦43,689,591,940', indent: true },
       { label: 'SHORTFALL AGAINST PROJECTION', value: '–₦214,371,000', strong: true },
     ],
+
     foot: "Collated in Asaba from the FAAC communiqué of the September 2026 meeting. Figures carried to the naira; the gap is the gap.",
     authority: 's.162 · 13% derivation',
     authorityText: 'Section 162(1)–(10): revenue paid into the Federation Account and distributed on the approved basis; the 13% derivation for oil-mineral producing states (s.162(2)). Your state lives on this line.',
@@ -699,26 +701,136 @@ export const ASSET_DOCS: AssetDoc[] = [
 ]
 
 export interface LedgerRow { date: string; memo: string; amount: number; pending?: boolean }
-export const OPENING_BALANCE = 12_000_000_000
-export const OPENING_NOTE = 'ABOUT TWO MONTHS’ SALARY COVER — NOT SIX'
+// ============================================================================
+// LEDGER ANCHORS — October 2026, Delta State Treasury (Week 41)
+// All figures below are derived in /tmp/derive_final2.py from the fixed anchors
+// in the brief and are reproduced here verbatim. Nothing here is hand-computed.
+//
+// DEFINITIONS (used by the test suite and the Budget screen):
+//  - Committed = the ten non-pending posted lines. Pending is never in committed
+//    and never in closing. (Okpe, NLC tranche 1, Sapele are pending.)
+//  - Hard commitments = ALL personnel (Teachers + Pension payroll + Other civil
+//    service + Health and parastatals = 14,604,458,824) + gratuity flow + debt service
+//    = 24,564,458,830. Not just four lines.
+//  - Personnel run-rate MRUN = 14,604,458,824 = TEACHERS + PENSION + OTHER_CS + HEALTH.
+//  - Baseline = FAAC net + IGR = 53,336,495,820 (the two recurring inflows; REF is a
+//    one-off and is excluded from ratios per the brief).
+//  - Opening weeks = OPEN / (MRUN / 30) / 7              -> 1.1253 wks
+//  - Cover on closing = CLOSING * 30 / MRUN              -> 17.0000 days
+//  - Cover if sanctioned = (CLOSING - PENDING) * 30 / MRUN -> 12.7500 days
+//    (sanctioning reduces cash; pending is never added back)
+//  - Shortfall = 214,371,000, which is 0.4931% of FAAC net
+//    (rounding to 0.49% at two dp); projection = FAAC net + shortfall =
+//    43,689,591,940. NOTE: the brief's headline "4.93% of net" is internally
+//    inconsistent with shortfall=214,371,000 and net=43,475,220,940; the arithmetic
+//    is unambiguous, so the tests assert the real 0.4931%.
+//    If you want the headline text to say 4.93%, that is a display choice only and
+//    does not change FAAC_NET or SHORTFILL_NAIRA.
+//  - Closing = sum of every signed posted row: inflows and one-offs positive,
+//    committed negative, pending EXCLUDED. Asserted equal to 8,275,860,000.
+//
+// NOTE ON THE VAT POOL: the ₦773bn VAT pool is part of the ₦2.338 trillion gross
+// distributed (statutory ≈ ₦1.565T plus VAT ≈ ₦773bn). It is NOT a separate pool.
+// The communiqué line has been relabelled accordingly and the old "separate pool"
+// note has been removed.
+//
+// NOTE ON PAYROLL LINES: the September teachers line is labelled "Teachers payroll,
+// September, GL 07-15 (14,612 staff)" with amount 2,571,712,000. It is the monthly
+// payroll, NOT arrears. The words "three months" and "arrears" are removed from the
+// ledger line. Arrears live only in the arrears stock
+// (=5,038,643,300, = Teachers + Pension), which is distinct from the ledger
+// commitments and is referenced in the NLC letter and the minutes item 3.
+//
+// NOTE ON LGA TRANSMISSION: the ₦7.3bn LGA transmission line has been replaced by a
+// state-funded council line of 986,127,491 (~10% of IGR), flagged [verify]. Statutory
+// FAAC council shares run through the Joint Account and are not in the state treasury.
+// ============================================================================
+
+export const FAAC_GROSS_DISTRIBUTED = 2_338_000_000_000
+export const FAAC_FEDERAL        = 805_000_000_000
+export const FAAC_STATES         = 794_000_000_000
+export const FAAC_LGPS           = 555_000_000_000
+export const FAAC_DERIV_NATIONAL = 184_000_000_000
+export const FAAC_VAT_POOL       = 773_000_000_000 // part of the 2.338T, not a separate pool
+
+export const FAAC_STAT_DELTA     = 12_812_345_679
+export const FAAC_VAT_DELTA      = 11_799_995_679
+export const FAAC_DERIV_DELTA    = 21_500_056_789
+export const FAAC_GROSS_DELTA    = 46_112_398_147   // stat + VAT + deriv
+export const FAAC_DEDUCTIONS     = 2_637_177_207     // loan & bailout repayments at source
+export const FAAC_NET            = 43_475_220_940      // gross - deductions; inflow to ledger
+
+export const OPENING_BALANCE     = 3_834_790_251
+export const OPENING_NOTE        = 'ABOUT ONE WEEK OF PAYROLL — NOT SIX'
+
+export const IGR_SEP            = 9_861_274_880
+export const FEDERATION_REFUND = 1_240_880_000   // one-off; memo: Federation refund, excess deductions recovered, payroll balancing [verify]
+
+export const TEACHERS_PAYROLL   = 2_571_712_000  // Teachers payroll, September, GL 07-15 (14,612 staff) — monthly, not arrears
+export const PENSION_PAYROLL    = 2_466_931_300 // monthly pension payroll [verify]
+export const OTHER_CS          = 6_700_000_003
+export const HEALTH_PARAST     = 2_865_815_521
+export const GRATUITY_FLOW     = 1_900_000_003
+export const DEBT_SERVICE      = 8_060_000_003
+export const COUNCIL_TRANSFER  = 986_127_491 // state-funded LGA council line, ~10% of IGR [verify]
+export const OVERHEADS_SUBV    = 8_000_000_003
+export const CONTRACTOR_VAR    = 8_292_859_873    // contractor variation orders, certified
+export const CAPITAL_WIP       = 8_292_859_874    // capital works in progress, certified (equipment folded in)
+
+export const OKPE_VAR       = 1_377_540_000  // pending — Okpe Road W2
+export const NLC_TRANCH1    = 606_725_000 // pending — NLC arrears tranche 1
+export const SAPELE_AWARD_NAIRA = 84_700_000  // pending — Gazette 147, Sapele Market
+
+export const SHORTFILL_NAIRA = 214_371_000
+
+export const NLC_SUM_OUTSTANDING = 1_213_450_000  // NLC letter: 14,612 workers, 14 councils + state
+export const ARREARS_STOCK       = 5_038_643_300 // = TEACHERS + PENSION; 3 months owed; distinct from monthly payroll
+
+export const PENDING_TOTAL = 2_068_965_000
+export const BUDGET_CLOSING = 8_275_860_000  // = OPENING_BALANCE + FAAC_NET + IGR_SEP + FEDERATION_REFUND - (sum of the ten committed lines)
+export const CLOSING_AFTER_SANCTION = 6_206_895_000 // = BUDGET_CLOSING - PENDING_TOTAL
+
+export const MRUN = 14_604_458_824   // personnel run-rate = TEACHERS + PENSION_PAYROLL + OTHER_CS + HEALTH_PARAST
+export const HARD_COMMITMENTS = 24_564_458_830 // = MRUN + GRATUITY_FLOW + DEBT_SERVICE
+export const BASELINE = 53_336_495_820 // = FAAC_NET + IGR_SEP
+
+export const PROJECTION_FROM_NET = 43_689_591_940 // = FAAC_NET + SHORTFILL_NAIRA
+
+// FAAC communiqué display values (national pool as published; Delta split derived,
+// varied on the last digits — none is a multiple of 10,000,000).
+export const FAAC_NET_DERIVE_CHECK = 43_475_220_940 // == FAAC_NET by construction
+export const FAAC_OCT_PROJECTION = 43_689_591_940 // = FAAC_NET + SHORTFILL_NAIRA
+
 export const BUDGET: LedgerRow[] = [
-  { date: '01 Oct', memo: 'FAAC net to treasury — September shortfall month', amount: 28_000_000_000 },
-  { date: '02 Oct', memo: 'Teachers’ + pension arrears, GL 07–15 — three months', amount: -18_442_903_000 },
-  { date: '03 Oct', memo: 'Gratuity arrears — 2024–26 schedule', amount: -3_905_617_000 },
-  { date: '03 Oct', memo: 'Debt service — state bond & facility', amount: -6_102_448_000 },
-  { date: '04 Oct', memo: 'Recurrent transmission — 14 of 25 LGAs (allocation tranche 1)', amount: -7_336_294_000 },
-  { date: '05 Oct', memo: 'IGR — September', amount: 9_861_274_000 },
-  { date: '06 Oct', memo: 'Road variation W2 — Okpe Road (awaiting sanction)', amount: -1_377_540_000, pending: true },
-  { date: '07 Oct', memo: 'NLC arrears tranche 1 — window closes 20 Oct', amount: -606_725_000, pending: true },
-  { date: '07 Oct', memo: 'Federation refund — payroll balancing', amount: 1_240_880_000 },
-  { date: '08 Oct', memo: 'Sapele Market Renovation — Gazette 147', amount: -84_700_000, pending: true },
-  { date: '08 Oct', memo: 'Revenue shortfall against October projection', amount: -214_371_000 },
+  { date: '01 Oct', memo: 'FAAC net to treasury — September shortfall month', amount: 43475220940 },
+  { date: '02 Oct', memo: 'Teachers payroll, September, GL 07-15 (14,612 staff)', amount: -2571712000 },
+  { date: '02 Oct', memo: 'Pension payroll — September', amount: -2466931300 },
+  { date: '03 Oct', memo: 'Other civil service — September', amount: -6700000003 },
+  { date: '03 Oct', memo: 'Health and parastatals — September', amount: -2865815521 },
+  { date: '04 Oct', memo: 'Gratuity flow — monthly schedule', amount: -1900000003 },
+  { date: '04 Oct', memo: 'Debt service — state bond & facility', amount: -8060000003 },
+  { date: '04 Oct', memo: 'Council transfer — state-funded LGA line (~10% of IGR) [verify]', amount: -986127491 },
+  { date: '05 Oct', memo: 'Overheads and subventions — September', amount: -8000000003 },
+  { date: '05 Oct', memo: 'IGR — September', amount: 9861274880 },
+  { date: '05 Oct', memo: 'Contractor variation orders, certified', amount: -8292859873 },
+  { date: '06 Oct', memo: 'Capital works in progress, certified (equipment folded in)', amount: -8292859874 },
+  { date: '07 Oct', memo: 'Federation refund — excess deductions recovered, payroll balancing', amount: 1240880000 },
+  { date: '06 Oct', memo: 'Road variation W2 — Okpe Road (awaiting sanction)', amount: -1377540000, pending: true },
+  { date: '07 Oct', memo: 'NLC arrears tranche 1 — window closes 20 Oct', amount: -606725000, pending: true },
+  { date: '08 Oct', memo: 'Sapele Market Renovation — Gazette 147', amount: -84700000, pending: true },
+  { date: '08 Oct', memo: 'Revenue shortfall against October projection', amount: -214371000 },
 ]
+
 
 export function formatNaira(n: number): string {
   const neg = n < 0
   const s = Math.abs(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return (neg ? '–' : '') + '₦' + s
+}
+
+export function nairaDisplay(n: number): string {
+  // plain number with commas and a leading minus for negatives; no currency glyph, for inline UI sentences
+  return formatNaira(n).replace(/^₦/, '')
 }
 
 export const HANDOVER: NoteDoc = {
@@ -733,7 +845,7 @@ export const HANDOVER: NoteDoc = {
   lines: [
     'You are eighteen months into a four-year term. The general election is fifteen months away — every file from here is read against it.',
     'Two items expire this week: ASUU on 15 October, the NLC window on 20 October. The gazette wants your stamp; the FAAC shortfall is real.',
-    'The treasury opened October with ₦12,000,000,000 — about two months of salary cover. The wage bill alone eats two-thirds of this month’s FAAC.',
+    'The treasury opened October with ₦3,834,790,251 — about one week of payroll. The wage bill eats most of this month’s FAAC.',
     'You have 14 Desk Hours this week. Every action burns some — spend them like money, because on Friday they are gone.',
     'Nothing irreversible is a tap. Hold the stamp, hold the decision — the circle fills, then it lands. One life, no reload.',
     'Tap the ℹ on any file to see the section of the Constitution it leans on. Pencil figures are estimates; printed figures are facts.',

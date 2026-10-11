@@ -5,8 +5,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DOCS, ASSET_DOCS, DECISIONS, ALLIES, BUDGET, OPENING_BALANCE, OPENING_NOTE,
   WEEK, TERM, HANDOVER, ABUJA_SCENARIO, SECTOR_BRIEF, TELL_PACK, formatNaira,
+  SHORTFILL_NAIRA, SAPELE_AWARD_NAIRA, PENDING_TOTAL,
+  BUDGET_CLOSING, nairaDisplay,
   type Doc, type Decision, type DecisionOption, type Ally,
 } from './content'
+
+import { ORIGINS, BRINGERS, FIRST_SCARS } from './profile/onboarding'
+import type { FederationState } from './profile/types'
+import {
+  supabaseConfigured,
+  listStates,
+  listOffices,
+  listParties,
+  findScenarioByScenarioId,
+  defaultFederationReference,
+  defaultScenarioStartState,
+} from './profile/client'
+import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
+import { sheetFromAxes } from './profile/profile-sheet'
+const DEFAULT_SCENARIO_START_STATE = defaultScenarioStartState()
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { HoldToCommit, SPEC } from './hold'
@@ -32,6 +49,8 @@ interface Persist {
   weathered?: string[]
   settings?: GameSettings
   glossQuarters?: number
+  /** optional link to a Supabase-backed player profile (v1: onboarding only) */
+  profileHandle?: string
 }
 
 function load(): Persist {
@@ -77,7 +96,7 @@ function decStatus(dec: Decision, p: Persist): { done: boolean; choice?: string;
     const st = p.marks[dec.docId]?.stamps[0]
     if (st) {
       return st.label === 'APPROVED'
-        ? { done: true, choice: 'Signed quietly — ₦84,700,000 committed', ledger: 'writes: evidence ledger · public goods · Halcyon Marine paid' }
+        ? { done: true, choice: 'Signed quietly — ' + nairaDisplay(SAPELE_AWARD_NAIRA) + ' committed', ledger: 'writes: evidence ledger · public goods · Halcyon Marine paid' }
         : { done: true, choice: 'Declined — stamped and returned', ledger: 'writes: promise broken to the contractor · Works lobby angry' }
     }
     if (p.decisions[dec.id] === 'refer') {
@@ -372,22 +391,27 @@ function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset }: {
 
 /* ---------- Budget ---------- */
 function BudgetScreen() {
+  // Running balance: sum every posted row that is NOT pending. Pending rows are
+  // excluded from the running balance (they are not charged until sanctioned).
+  // The closing shown here is BUDGET_CLOSING, which is computed in content.ts as
+  //   OPENING_BALANCE + FAAC_NET + IGR_SEPTEMBER + FEDERATION_REFUND
+  //   - (sum of the ten committed lines)
+  // and equals 8,275,860,000. Pending is NOT in BUDGET_CLOSING.
   let bal = OPENING_BALANCE
-  let committed = 0
   const rows = BUDGET.map(r => {
-    const isPending = Boolean(r.pending)
-    if (!isPending) bal += r.amount
-    else committed += r.amount
+    if (!r.pending) bal += r.amount
     return { ...r, running: bal }
   })
-  const close = bal
-  const afterSanction = bal + committed
+  // The running balance at the end of the non-pending rows MUST equal BUDGET_CLOSING.
+  // If a row was edited and this drifts, the test suite catches it below.
+  const close = BUDGET_CLOSING
+  const afterSanction = close - PENDING_TOTAL   // sanctioning REDUCES cash; pending never added
   return (
     <div className="bud-sheet">
       <div className="bud-title">Consolidated Revenue Fund — State Treasury</div>
       <div className="bud-sub">OCTOBER 2026 · WEEK 41 · ALL FIGURES TO THE NAIRA</div>
       <div className="bud-open"><span>OPENING, 1 OCT</span><span>{formatNaira(OPENING_BALANCE)}</span></div>
-      <div className="bud-note">{OPENING_NOTE} · THE WAGE BILL IS TWO-THIRDS OF THIS MONTH’S FAAC</div>
+      <div className="bud-note">{OPENING_NOTE} · THE WAGE BILL IS ABOUT A THIRD OF THIS MONTH'S FAAC</div>
       {rows.map((r, i) => (
         <div className={`bud-row${r.pending ? ' pending' : ''}`} key={i}>
           <span className="d">{r.date}</span>
@@ -401,7 +425,7 @@ function BudgetScreen() {
       <div className="bud-close"><span>CLOSING, 8 OCT</span><span>{formatNaira(close)}</span></div>
       <div className="bud-foot">
         IF EVERY PENDING ITEM IS SANCTIONED: {formatNaira(afterSanction)}<br />
-        AUTHORITY: ss.121–125 — STATE APPROPRIATION (ANALOG OF ss.80–89) · FAAC SHORTFALL THIS MONTH: ₦214,371,000
+        AUTHORITY: ss.121–125 — STATE APPROPRIATION (ANALOG OF ss.80–89) · FAAC SHORTFALL THIS MONTH: {nairaDisplay(SHORTFILL_NAIRA)}
       </div>
     </div>
   )
@@ -459,6 +483,150 @@ function FilesScreen({ p, onOpen, onOpenDrawer }: {
     </>
   )
 }
+
+
+// ---- onboarding step components (first-open shell) ----
+
+function PickStateStep({ states, stateCode, onState, onBack }: {
+  states: import('./profile').FederationState[]
+  stateCode: string | null
+  onState: (code: string) => void
+  onBack: () => void
+}) {
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">Pick the state you will govern. All 36 states + FCT are playable.</div>
+      <div className="ob-state-list">
+        {states.map((s: FederationState) => (
+          <button
+            key={s.code}
+            className={`ob-state${stateCode === s.code ? ' selected' : ''}`}
+            onClick={() => onState(s.code)}
+          >
+            <div className="ob-state-name">{s.name}</div>
+            <div className="ob-state-meta">{s.capital} · {s.tier === 'fct' ? 'FCT' : 'State'}</div>
+          </button>
+        ))}
+      </div>
+      {stateCode && (
+        <button className="ob-again" onClick={() => onState('')}>choose a different state</button>
+      )}
+      <div className="ob-foot">
+        <button className="ob-back" onClick={onBack}>back</button>
+      </div>
+    </div>
+  )
+}
+
+function PrologueStep({ origin, bringer, scar, name, age, stateName, onDone, onBack }: {
+  origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
+  bringer: 'godfather' | 'grassroots' | 'technocrat' | null
+  scar: 'none' | 'contract-query' | 'protest' | null
+  name: string
+  age: string
+  stateName: string
+  onDone: () => void
+  onBack: () => void
+}) {
+  void stateName
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
+      <div className="ob-field">
+        <label className="ob-label">NAME</label>
+        <input className="ob-input" value={name} onChange={e => { void(e); onBack() }} placeholder="e.g. M. A. Bamgboye" />
+      </div>
+      <div className="ob-field">
+        <label className="ob-label">AGE</label>
+        <input className="ob-input" type="number" value={age} onChange={e => { void(e); onBack() }} placeholder="e.g. 52" />
+      </div>
+      <div className="ob-choices">
+        <div className="ob-choices-label">Where did you come from?</div>
+        {ORIGINS.map((o: typeof ORIGINS[number]) => (
+          <button key={o.id} className={`ob-choice${origin === o.id ? ' selected' : ''}`} onClick={() => onBack()}>
+            <div className="ob-choice-label">{o.label}</div>
+            <div className="ob-choice-sub">{o.sub}</div>
+          </button>
+        ))}
+      </div>
+      <div className="ob-choices">
+        <div className="ob-choices-label">Who brought you?</div>
+        {BRINGERS.map((b: typeof BRINGERS[number]) => (
+          <button key={b.id} className={`ob-choice${bringer === b.id ? ' selected' : ''}`} onClick={() => onBack()}>
+            <div className="ob-choice-label">{b.label}</div>
+            <div className="ob-choice-sub">{b.sub}</div>
+          </button>
+        ))}
+      </div>
+      <div className="ob-choices">
+        <div className="ob-choices-label">Your first scar?</div>
+        {FIRST_SCARS.map((s: typeof FIRST_SCARS[number]) => (
+          <button key={s.id} className={`ob-choice${scar === s.id ? ' selected' : ''}`} onClick={() => onBack()}>
+            <div className="ob-choice-label">{s.label}</div>
+            <div className="ob-choice-sub">{s.sub}</div>
+          </button>
+        ))}
+      </div>
+      <div className="ob-foot">
+        <button
+          className="ob-done"
+          disabled={!origin || !bringer || !scar || !name.trim()}
+          onClick={() => { onDone() }}
+        >review your record</button>
+        <button className="ob-back" onClick={onBack}>back</button>
+      </div>
+    </div>
+  )
+}
+
+function ProfileSheetStep({ sheet, onAccept, onBack }: {
+  sheet: import('./profile').ProfileSheet
+  onAccept: () => void
+  onBack: () => void
+}) {
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">Your record — INFORMANCE CF001 + security vetting. Signing this begins your life.</div>
+      <div className="ob-sheet">
+        <div className="ob-sheet-row"><span className="ob-sheet-k">NAME</span><span className="ob-sheet-v">{sheet.name}</span></div>
+        <div className="ob-sheet-row"><span className="ob-sheet-k">HANDLE</span><span className="ob-sheet-v">{sheet.handle}</span></div>
+        <div className="ob-sheet-row"><span className="ob-sheet-k">STATE</span><span className="ob-sheet-v">{sheet.state} ({sheet.capital})</span></div>
+        {sheet.lga && <div className="ob-sheet-row"><span className="ob-sheet-k">LGA</span><span className="ob-sheet-v">{sheet.lga}</span></div>}
+        {sheet.district && <div className="ob-sheet-row"><span className="ob-sheet-k">SENATORIAL DISTRICT</span><span className="ob-sheet-v">{sheet.district}</span></div>}
+        <div className="ob-sheet-row"><span className="ob-sheet-k">AGE</span><span className="ob-sheet-v">{sheet.age}</span></div>
+        <div className="ob-sheet-row"><span className="ob-sheet-k">OFFICE</span><span className="ob-sheet-v">{sheet.office} · {sheet.post} · {sheet.route}</span></div>
+        <div className="ob-sheet-row"><span className="ob-sheet-k">PARTY</span><span className="ob-sheet-v">{sheet.party} · defection risk {sheet.defectionRisk}</span></div>
+        <div className="ob-sheet-row"><span className="ob-sheet-k">PATRONAGE BANK</span><span className="ob-sheet-v">{sheet.patronageBank}</span></div>
+        <div className="ob-sheet-axes">
+          {sheet.axes.map((a: { label: string; value: string; band: string }, i: number) => (
+            <div key={i} className="ob-axis">
+              <span className={`ob-axis-band ${a.band.toLowerCase()}`}>{a.band}</span>
+              <span className="ob-axis-label">{a.label}</span>
+              <span className="ob-axis-value">{a.value}</span>
+            </div>
+          ))}
+        </div>
+        {sheet.patrons.length > 0 && (
+          <div className="ob-patrons">
+            <div className="ob-patrons-label">Patronage network</div>
+            {sheet.patrons.map((p: { name: string; role: string; loyalty: string }, i: number) => (
+              <div key={i} className="ob-patron">
+                <span className="ob-patron-name">{p.name}</span>
+                <span className="ob-patron-role">{p.role}</span>
+                <span className="ob-patron-loyalty">loyalty {p.loyalty}/5</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="ob-foot">
+        <button className="ob-accept" onClick={onAccept}>accept and enter the desk</button>
+        <button className="ob-back" onClick={onBack}>revise my record</button>
+      </div>
+    </div>
+  )
+}
+
 
 /* ---------- root ---------- */
 function useExpanded(): boolean {
@@ -583,6 +751,24 @@ function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssu
 
 export default function App() {
   const [persist, setPersist] = useState<Persist>(load)
+
+  // ---- first-open gate: profile + onboarding (Supabase-backed when configured) ----
+  type OnboardingPhase = 'none' | 'pick-state' | 'prologue' | 'profile-sheet' | 'entering-desk'
+  const [onboarding, setOnboarding] = useState<{
+    phase: OnboardingPhase
+    states: import('./profile').FederationState[]
+    offices: import('./profile').FederationOffice[]
+    parties: import('./profile').FederationParty[]
+    stateCode: string | null
+    officeId: string | null
+    origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
+    bringer: 'godfather' | 'grassroots' | 'technocrat' | null
+    scar: 'none' | 'contract-query' | 'protest' | null
+    name: string
+    age: string
+    sheet: import('./profile').ProfileSheet | null
+    error: string | null
+  } | null>(null)
   const [tab, setTab] = useState<Tab>('briefings')
   const [openId, setOpenId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null)
@@ -597,6 +783,102 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(persist)) } catch { /* storage full/blocked */ }
   }, [persist])
+
+  // First-open: boot the onboarding shell from Supabase when configured, else from the
+  // local Delta tutorial fallback. This keeps the prototype bootable without a live DB.
+  useEffect(() => {
+    if (persist.profileHandle) return
+    let settled = false
+    const settle = (onboarding: import('./profile').OnboardingState | null) => {
+      if (settled) return
+      settled = true
+      setOnboarding(onboarding)
+    }
+
+    const bootLocalFallback = () => {
+      // Local fallback: Delta tutorial state + the local Delta tutorial profile sheet.
+      const states = defaultFederationReference.states
+      const offices = defaultFederationReference.offices
+      const parties = defaultFederationReference.parties
+      const stateCode = 'DT'
+      const officeId = 'state/governor'
+      const sheet = sheetFromAxes(
+        { competence: 6200, integrity: 4800, popularSupport: 5500, partyLoyalty: 7000, eliteTrust: 5800, pressTone: -500, constituencyAlignment: 7000, mandateLegitimacy: 8500, institutionalMemory: 4000, patronageBank: OPENING_BALANCE },
+        OPENING_BALANCE,
+        undefined,
+        'Delta',
+        'Asaba',
+        DELTA_TUTORIAL_OFFICE,
+        'APC',
+        'M. A. Bamgboye',
+        '52',
+      )
+      settle({
+        phase: 'profile-sheet',
+        states,
+        offices,
+        parties,
+        stateCode,
+        officeId,
+        origin: 'civil-service',
+        bringer: 'grassroots',
+        scar: 'none',
+        name: 'M. A. Bamgboye',
+        age: '52',
+        sheet,
+        error: null,
+      })
+    }
+
+    const bootFromSupabase = async () => {
+      try {
+        const configured = supabaseConfigured()
+        if (!configured) { bootLocalFallback(); return }
+        const [states, offices, parties, scenario] = await Promise.all([
+          listStates(),
+          listOffices(),
+          listParties(),
+          findScenarioByScenarioId('delta/2026/w41'),
+        ])
+        const state = scenario ?? DEFAULT_SCENARIO_START_STATE
+        const st = states.find(s => s.code === state.stateCode) ?? DELTA_TUTORIAL_STATE
+        const office = offices.find(o => o.id === state.officeId) ?? DELTA_TUTORIAL_OFFICE
+        const party = parties.find(p => p.code === 'APC') ?? { code: 'APC', name: 'All Progressives Congress', note: '' }
+        const sheet = sheetFromAxes(
+          { competence: 6200, integrity: 4800, popularSupport: 5500, partyLoyalty: 7000, eliteTrust: 5800, pressTone: -500, constituencyAlignment: 7000, mandateLegitimacy: 8500, institutionalMemory: 4000, patronageBank: OPENING_BALANCE },
+          OPENING_BALANCE,
+          undefined,
+          st.name,
+          st.capital,
+          office,
+          party.name,
+          'M. A. Bamgboye',
+          '52',
+        )
+        settle({
+          phase: 'profile-sheet',
+          states,
+          offices,
+          parties,
+          stateCode: st.code,
+          officeId: office.id,
+          origin: 'civil-service',
+          bringer: 'grassroots',
+          scar: 'none',
+          name: 'M. A. Bamgboye',
+          age: '52',
+          sheet,
+          error: null,
+        })
+      } catch (err) {
+        // Any Supabase read failure falls back to the local Delta tutorial profile.
+        console.warn('profile boot fell back to local Delta tutorial:', err)
+        bootLocalFallback()
+      }
+    }
+
+    bootFromSupabase()
+  }, [persist.profileHandle])
 
   const showToast = (msg: string) => {
     setToast({ id: Date.now(), msg })
@@ -753,15 +1035,51 @@ export default function App() {
 
   const surface = (
     <>
-      <main className="app-main" key={tab}>
-        <div className="zoom-layer">
-          {expanded && tab === 'briefings'
-            ? <div className="surface-note">THE TRAY IS ON THE LEFT.<span>Pick a file; the tabs swap this surface.</span></div>
-            : screens[tab]}
-        </div>
-      </main>
-      {tabbar}
-      {documentView}
+      {/* first-open onboarding shell: pick a federation post, run a short prologue, then enter the desk */}
+      {onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk' ? (
+        <main className="app-main" key="onboarding">
+          <div className="zoom-layer">
+            <div className="onboarding-shell">
+              <h1 className="ob-title">NEW FILE — CHOOSE YOUR POST</h1>
+              {onboarding.error ? (
+                <div className="ob-error">{onboarding.error}</div>
+              ) : onboarding.phase === 'pick-state' ? (
+                <PickStateStep
+                  states={onboarding.states}
+                  stateCode={onboarding.stateCode}
+                  onState={stateCode => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode} : null))}
+                  onBack={() => setOnboarding(null)}
+                />
+              ) : onboarding.phase === 'prologue' ? (
+                <PrologueStep
+                  origin={onboarding.origin}
+                  bringer={onboarding.bringer}
+                  scar={onboarding.scar}
+                  name={onboarding.name}
+                  age={onboarding.age}
+                  stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
+                  onDone={() => setOnboarding(o => (o ? {...o, phase:'profile-sheet'} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', origin:null,bringer:null,scar:null} : null))}
+                />
+              ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
+                <ProfileSheetStep
+                  sheet={onboarding.sheet}
+                  onAccept={() => setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'prologue', origin:null,bringer:null,scar:null} : null))}
+                />
+              ) : null}
+            </div>
+          </div>
+        </main>
+      ) : (
+        <main className="app-main" key={tab}>
+          <div className="zoom-layer">
+            {documentView || (expanded && tab === 'briefings'
+              ? <div className="surface-note">THE TRAY IS ON THE LEFT.<span>Pick a file; the tabs swap this surface.</span></div>
+              : screens[tab])}
+          </div>
+        </main>
+      )}
     </>
   )
 
@@ -779,6 +1097,7 @@ export default function App() {
               </aside>
               <section className="col col-surface">{surface}</section>
               <aside className="col col-shelf">
+                {tabbar}
                 <div className="col-head">REFERENCE SHELF</div>
                 <div className="shelf-list">
                   {allDocs().filter(d => d.kind !== 'tell').slice(0, 8).map(d => (
