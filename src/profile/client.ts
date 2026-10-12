@@ -504,23 +504,30 @@ export async function findScenarioByScenarioId(scenarioId: string): Promise<Scen
       ? scenarioStartStateFromTutorial()
       : null
   }
+  // Read with an explicit ordering + limit rather than `.single()`. `.single()`
+  // raises PGRST116 both when there are no rows and when there is more than one,
+  // so a stray duplicate row would look exactly like "scenario not found" and
+  // silently drop the caller onto the local fallback. Asking for the earliest row
+  // keeps the lookup well-defined; the unique index on scenario_id (migration 001)
+  // is what guarantees there is only ever one.
   const { data, error } = await client
     .from('scenario_start_state')
     .select('*')
     .eq('scenario_id', scenarioId)
-    .single()
-  if (error) {
-    if ((error as any).code === 'PGRST116') return null
-    throw error
-  }
+    .order('started_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(1)
+  if (error) throw error
+  const row = ((data ?? []) as any[])[0]
+  if (!row) return null
   return {
-    id: data.id,
-    scenarioId: data.scenario_id,
-    title: data.title,
-    officeId: data.office_id,
-    stateCode: data.state_code,
-    seed: data.seed,
-    startedAt: data.started_at,
+    id: row.id,
+    scenarioId: row.scenario_id,
+    title: row.title,
+    officeId: row.office_id,
+    stateCode: row.state_code,
+    seed: row.seed,
+    startedAt: row.started_at,
   }
 }
 

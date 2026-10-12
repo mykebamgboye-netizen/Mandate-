@@ -102,3 +102,21 @@ CREATE POLICY scenario_read ON scenario_start_state FOR SELECT USING (true);
 CREATE INDEX IF NOT EXISTS idx_patronage_profile ON patronage_network(profile_id);
 CREATE INDEX IF NOT EXISTS idx_axis_profile ON profile_axis_history(profile_id, axis);
 CREATE INDEX IF NOT EXISTS idx_lgas_state ON federation_lgas(state_code);
+
+-- Scenario rows must be unique per scenario_id. The original seed used a bare
+-- `ON CONFLICT DO NOTHING`, which cannot fire against the surrogate `id` primary
+-- key, so every seed run appended another identical row. A duplicate makes
+-- PostgREST `.single()` fail with PGRST116 ("The result contains 2 rows"), which
+-- the client used to read as "scenario not found" — a silent fallback, not an
+-- error. Deduplicate first (keep the earliest row), then enforce uniqueness so
+-- future seeds conflict on scenario_id as intended.
+DELETE FROM scenario_start_state
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id, row_number() OVER (PARTITION BY scenario_id ORDER BY started_at, id) AS rn
+    FROM scenario_start_state
+  ) ranked
+  WHERE ranked.rn > 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS scenario_start_state_scenario_id_key
+  ON scenario_start_state(scenario_id);
