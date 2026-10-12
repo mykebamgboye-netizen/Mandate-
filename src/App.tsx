@@ -10,7 +10,7 @@ import {
   type Doc, type Decision, type DecisionOption, type Ally,
 } from './content'
 
-import { ORIGINS, BRINGERS, FIRST_SCARS } from './profile/onboarding'
+import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState } from './profile/onboarding'
 import type { FederationState } from './profile/types'
 import {
   supabaseConfigured,
@@ -518,13 +518,18 @@ function PickStateStep({ states, stateCode, onState, onBack }: {
   )
 }
 
-function PrologueStep({ origin, bringer, scar, name, age, stateName, onDone, onBack }: {
+function PrologueStep({ origin, bringer, scar, name, age, stateName, setName, setAge, onOrigin, onBringer, onScar, onDone, onBack }: {
   origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
   bringer: 'godfather' | 'grassroots' | 'technocrat' | null
   scar: 'none' | 'contract-query' | 'protest' | null
   name: string
   age: string
   stateName: string
+  setName: (v: string) => void
+  setAge: (v: string) => void
+  onOrigin: (o: 'civil-service' | 'party-youth' | 'business' | 'activist') => void
+  onBringer: (b: 'godfather' | 'grassroots' | 'technocrat') => void
+  onScar: (s: 'none' | 'contract-query' | 'protest') => void
   onDone: () => void
   onBack: () => void
 }) {
@@ -534,16 +539,16 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, onDone, onB
       <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
       <div className="ob-field">
         <label className="ob-label">NAME</label>
-        <input className="ob-input" value={name} onChange={e => { void(e); onBack() }} placeholder="e.g. M. A. Bamgboye" />
+        <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
       </div>
       <div className="ob-field">
         <label className="ob-label">AGE</label>
-        <input className="ob-input" type="number" value={age} onChange={e => { void(e); onBack() }} placeholder="e.g. 52" />
+        <input className="ob-input" type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 52" />
       </div>
       <div className="ob-choices">
         <div className="ob-choices-label">Where did you come from?</div>
         {ORIGINS.map((o: typeof ORIGINS[number]) => (
-          <button key={o.id} className={`ob-choice${origin === o.id ? ' selected' : ''}`} onClick={() => onBack()}>
+          <button key={o.id} className={`ob-choice${origin === o.id ? ' selected' : ''}`} onClick={() => onOrigin(o.id)}>
             <div className="ob-choice-label">{o.label}</div>
             <div className="ob-choice-sub">{o.sub}</div>
           </button>
@@ -552,7 +557,7 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, onDone, onB
       <div className="ob-choices">
         <div className="ob-choices-label">Who brought you?</div>
         {BRINGERS.map((b: typeof BRINGERS[number]) => (
-          <button key={b.id} className={`ob-choice${bringer === b.id ? ' selected' : ''}`} onClick={() => onBack()}>
+          <button key={b.id} className={`ob-choice${bringer === b.id ? ' selected' : ''}`} onClick={() => onBringer(b.id)}>
             <div className="ob-choice-label">{b.label}</div>
             <div className="ob-choice-sub">{b.sub}</div>
           </button>
@@ -561,7 +566,7 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, onDone, onB
       <div className="ob-choices">
         <div className="ob-choices-label">Your first scar?</div>
         {FIRST_SCARS.map((s: typeof FIRST_SCARS[number]) => (
-          <button key={s.id} className={`ob-choice${scar === s.id ? ' selected' : ''}`} onClick={() => onBack()}>
+          <button key={s.id} className={`ob-choice${scar === s.id ? ' selected' : ''}`} onClick={() => onScar(s.id)}>
             <div className="ob-choice-label">{s.label}</div>
             <div className="ob-choice-sub">{s.sub}</div>
           </button>
@@ -1047,7 +1052,7 @@ export default function App() {
                 <PickStateStep
                   states={onboarding.states}
                   stateCode={onboarding.stateCode}
-                  onState={stateCode => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode} : null))}
+                  onState={stateCode => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode, officeId:'state/governor'} : null))}
                   onBack={() => setOnboarding(null)}
                 />
               ) : onboarding.phase === 'prologue' ? (
@@ -1058,7 +1063,12 @@ export default function App() {
                   name={onboarding.name}
                   age={onboarding.age}
                   stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
-                  onDone={() => setOnboarding(o => (o ? {...o, phase:'profile-sheet'} : null))}
+                  setName={v => setOnboarding(o => (o ? {...o, name: v} : null))}
+                  setAge={v => setOnboarding(o => (o ? {...o, age: v} : null))}
+                  onOrigin={id => setOnboarding(o => (o ? {...o, origin: id} : null))}
+                  onBringer={id => setOnboarding(o => (o ? {...o, bringer: id} : null))}
+                  onScar={id => setOnboarding(o => (o ? {...o, scar: id} : null))}
+                  onDone={() => setOnboarding(o => (o ? nextSheetState(o as import('./profile').OnboardingState) : null))}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', origin:null,bringer:null,scar:null} : null))}
                 />
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
