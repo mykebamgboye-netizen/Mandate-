@@ -20,20 +20,22 @@ import {
 } from './delta-tutorial'
 
 // ---- env access: returns undefined (not an error) when the var is absent. ----
-
-function envMeta(): Record<string, string> | undefined {
-  let _metaEnv: Record<string, string> | undefined
-  const metaEnv = (typeof globalThis !== 'undefined' ? (globalThis as any).import?.meta?.env : undefined)
-  _metaEnv = metaEnv
-  return _metaEnv
-}
-
+//
+// These reads MUST be static, literal `import.meta.env.VITE_*` tokens: Vite replaces them with
+// the literal value at build time. Reading `import.meta` dynamically (e.g.
+// `globalThis.import?.meta?.env`) is never replaced by the bundler and is always undefined at
+// runtime, so the Supabase path would never be taken even when the deploy host has the vars.
+// `window.__env` stays as an optional runtime override (e.g. server-injected config).
 function getEnv(name: string): string | undefined {
-  const metaEnv = envMeta()
-  if (metaEnv && typeof metaEnv[name] === 'string' && metaEnv[name]) return metaEnv[name]
-  if (typeof window !== 'undefined' && (window as any).__env && typeof (window as any).__env[name] === 'string' && (window as any).__env[name]) {
-    return (window as any).__env[name]
+  const buildEnv: Record<string, string | undefined> = {
+    VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
+    VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
+    VITE_SUPABASE_SERVICE_ROLE_KEY: import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
   }
+  const fromBuild = buildEnv[name]
+  if (typeof fromBuild === 'string' && fromBuild) return fromBuild
+  const fromWindow = (globalThis as any).__env?.[name]
+  if (typeof fromWindow === 'string' && fromWindow) return fromWindow
   return undefined
 }
 
