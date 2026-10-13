@@ -16,7 +16,7 @@ import type {
 import { DEFAULT_AXES, normalizeProfile } from './types'
 import {
   DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE, DELTA_TUTORIAL_SCENARIO,
-  deltaTutorialProfile,
+  deltaTutorialProfile, FCT_MINISTER_OFFICE,
 } from './delta-tutorial'
 
 // ---- env access: returns undefined (not an error) when the var is absent. ----
@@ -536,7 +536,7 @@ export async function findScenarioByScenarioId(scenarioId: string): Promise<Scen
 /** When Supabase is absent, the onboarding shell falls back to the Delta tutorial scenario. */
 export const defaultFederationReference = {
   states: [DELTA_TUTORIAL_STATE] as FederationState[],
-  offices: [DELTA_TUTORIAL_OFFICE] as FederationOffice[],
+  offices: [DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE] as FederationOffice[],
   parties: [{ code: 'APC', name: 'All Progressives Congress', note: 'local fallback' }] as FederationParty[],
 }
 

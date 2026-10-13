@@ -98,7 +98,7 @@ export function startingPatronageBankForOffice(officeId: string, stateCode: stri
 
 export interface OfficeEntry {
   id: string
-  tier: 'federal' | 'state' | 'local'
+  tier: 'federal' | 'state' | 'local' | 'fct'
   post: string
   route: 'elected' | 'appointed' | 'nomination'
   jurisdiction: string

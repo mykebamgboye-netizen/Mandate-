@@ -45,6 +45,21 @@ export const DELTA_TUTORIAL_OFFICE: FederationOffice = {
   authorityNote: 'ss.176 · Governor; s.162 · Federation Account; ss.121–125 · State Appropriation; s.192 · Commissioners',
 }
 
+// The FCT's office, mirroring the federation_offices row 'fct/minister' (migration 002).
+// Kept here so the offline fallback can still route the FCT card correctly: the territory
+// has no governorship, it is administered by a Minister appointed by the President (s.299).
+export const FCT_MINISTER_OFFICE: FederationOffice = {
+  id: 'fct/minister',
+  tier: 'fct',
+  post: 'Minister of the Federal Capital Territory',
+  route: 'appointed',
+  jurisdiction: 'territory',
+  termNote: 'Serves at the pleasure of the President; no elected governorship exists for the territory.',
+  powers: ['sign.memo', 'receive.faac', 'receive.appropriation', 'budget.allocate', 'oversight.lga'],
+  revenueMap: { faac_net: true, igr: true, state_wages: true, state_capex: true },
+  authorityNote: 's.299 · FCT administered by the President through a Minister',
+}
+
 // The starting profile for the Delta tutorial. Axes are set to a believable "18 months in,
 // 15 months to election" posture consistent with the content pack's framing.
 export function deltaTutorialProfile(identity: Partial<ProfileIdentity> = {}): Profile {

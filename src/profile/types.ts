@@ -2,12 +2,13 @@
 // This layer is Supabase-backed in production and mirrors the model in the design note.
 // Axes are in basis points (0..10000) to stay compatible with the sim's BP model.
 
-export type Tier = 'federal' | 'state' | 'local'
+export type Tier = 'federal' | 'state' | 'local' | 'fct'
 export type Route = 'elected' | 'appointed' | 'nomination'
 export type Jurisdiction =
   | 'nation'
   | 'state'
   | 'lga'
+  | 'territory' /* the FCT — federal territory, not a state (s.299) */
   | 'constituency'
   | 'senatorial_district'
   | 'ministry'

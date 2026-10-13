@@ -11,6 +11,7 @@ import {
 } from './content'
 
 import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState } from './profile/onboarding'
+import { ensureReferenceOffices, startingOfficeForState } from './profile/profile-state'
 import type { FederationState } from './profile/types'
 import {
   supabaseConfigured,
@@ -518,13 +519,14 @@ function PickStateStep({ states, stateCode, onState, onBack }: {
   )
 }
 
-function PrologueStep({ origin, bringer, scar, name, age, stateName, setName, setAge, onOrigin, onBringer, onScar, onDone, onBack }: {
+function PrologueStep({ origin, bringer, scar, name, age, stateName, office, setName, setAge, onOrigin, onBringer, onScar, onDone, onBack }: {
   origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
   bringer: 'godfather' | 'grassroots' | 'technocrat' | null
   scar: 'none' | 'contract-query' | 'protest' | null
   name: string
   age: string
   stateName: string
+  office: import('./profile').FederationOffice
   setName: (v: string) => void
   setAge: (v: string) => void
   onOrigin: (o: 'civil-service' | 'party-youth' | 'business' | 'activist') => void
@@ -533,10 +535,15 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, setName, se
   onDone: () => void
   onBack: () => void
 }) {
+  /* The FCT has no governorship (s.299): its post is the appointed ministership, and the
+     territory is not named after the office the way a state is. */
+  const postLine = office.tier === 'fct'
+    ? `${office.post.toUpperCase()} · ${stateName.toUpperCase()}`
+    : `${office.post.toUpperCase()} OF ${stateName.toUpperCase()}`
   return (
     <div className="ob-step">
       <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
-      <div className="ob-post">POST — GOVERNOR OF {stateName.toUpperCase()}</div>
+      <div className="ob-post">POST — {postLine}</div>
       <div className="ob-field">
         <label className="ob-label">NAME</label>
         <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
@@ -839,12 +846,15 @@ export default function App() {
       try {
         const configured = supabaseConfigured()
         if (!configured) { bootLocalFallback(); return }
-        const [states, offices, parties, scenario] = await Promise.all([
+        const [states, officesFromDb, parties, scenario] = await Promise.all([
           listStates(),
           listOffices(),
           listParties(),
           findScenarioByScenarioId('delta/2026/w41'),
         ])
+        // the FCT has no governorship (s.299); its office row ships in migration 002, so a
+        // not-yet-migrated database still gets a working picker rather than an 'Office not found.'
+        const offices = ensureReferenceOffices(officesFromDb)
         const state = scenario ?? DEFAULT_SCENARIO_START_STATE
         const st = states.find(s => s.code === state.stateCode) ?? DELTA_TUTORIAL_STATE
         const office = offices.find(o => o.id === state.officeId) ?? DELTA_TUTORIAL_OFFICE
@@ -1052,7 +1062,7 @@ export default function App() {
                 <PickStateStep
                   states={onboarding.states}
                   stateCode={onboarding.stateCode}
-                  onState={stateCode => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode, officeId:'state/governor'} : null))}
+                  onState={stateCode => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode, officeId: startingOfficeForState(stateCode)} : null))}
                   onBack={() => setOnboarding(null)}
                 />
               ) : onboarding.phase === 'prologue' ? (
@@ -1063,6 +1073,7 @@ export default function App() {
                   name={onboarding.name}
                   age={onboarding.age}
                   stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
+                  office={onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE}
                   setName={v => setOnboarding(o => (o ? {...o, name: v} : null))}
                   setAge={v => setOnboarding(o => (o ? {...o, age: v} : null))}
                   onOrigin={id => setOnboarding(o => (o ? {...o, origin: id} : null))}

@@ -7,6 +7,7 @@ import type { Origin, Bringer, FirstScar } from './prologue'
 import { sheetFromAxes, prologueAxes } from './profile-sheet'
 import { ORIGINS, BRINGERS, FIRST_SCARS } from './prologue'
 import { OPENING_BALANCE } from '../content'
+import { FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE } from './delta-tutorial'
 
 export type OnboardingPhase = 'pick-state' | 'prologue' | 'profile-sheet'
 
@@ -49,6 +50,29 @@ export function defaultState(
 }
 
 // Transition helpers — pure functions so App.tsx keeps control of the render.
+
+// ---- post for a state-level pick ----
+//
+// The FCT is not a state: it has no governorship. s.299 has the territory
+// administered by the President through a Minister, so the FCT card must route to
+// an 'fct'-tier office rather than pinning 'state/governor' like the 36 states do.
+export const FCT_STATE_CODE = 'FC'
+export const FCT_OFFICE_ID = 'fct/minister'
+export const STATE_GOVERNOR_OFFICE_ID = 'state/governor'
+
+export function startingOfficeForState(stateCode: string): string {
+  return stateCode === FCT_STATE_CODE ? FCT_OFFICE_ID : STATE_GOVERNOR_OFFICE_ID
+}
+
+/** The picker must never dead-end on a missing reference row: if the live
+    federation_offices table has not been migrated yet (the FCT row ships in
+    migration 002), merge the canonical definitions in so the chosen card still
+    resolves to a real office. */
+export function ensureReferenceOffices(offices: FederationOffice[]): FederationOffice[] {
+  const have = new Set(offices.map(o => o.id))
+  const required = [FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE]
+  return [...offices, ...required.filter(o => !have.has(o.id))]
+}
 
 export function nextPrologueState(s: OnboardingState): OnboardingState {
   if (!s.stateCode) return s
