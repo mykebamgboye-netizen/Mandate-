@@ -6,6 +6,7 @@ import type { FederationState, FederationOffice, FederationParty } from './types
 import type { Origin, Bringer, FirstScar } from './prologue'
 import { sheetFromAxes, prologueAxes } from './profile-sheet'
 import { ORIGINS, BRINGERS, FIRST_SCARS } from './prologue'
+import { OPENING_BALANCE } from '../content'
 
 export type OnboardingPhase = 'pick-state' | 'prologue' | 'profile-sheet'
 
@@ -64,7 +65,12 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
   if (!office) return { ...s, error: 'Office not found.' }
   const party = s.parties.find(p => p.code === 'APC') ?? null
 
-  const base = normalizeAxes({})
+  /* The prologue's axes are deltas on top of the desk you are taking over, not a
+     from-scratch slate: the patronage bank must start at the treasury's opening
+     balance (the same ₦ figure the budget screen reports). Building from an empty
+     normalizeAxes({}) silently zeroed it, so a revised record claimed a ₦0 bank
+     while the desk held ₦3.83bn. */
+  const base = normalizeAxes({ patronageBank: OPENING_BALANCE })
 
   const axes = prologueAxes(
     base,
