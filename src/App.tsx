@@ -11,13 +11,15 @@ import {
 } from './content'
 
 import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState } from './profile/onboarding'
-import { ensureReferenceOffices, startingOfficeForState } from './profile/profile-state'
-import type { FederationState } from './profile/types'
+import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
+import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
+import type { FederationLga, FederationOffice, FederationState } from './profile/types'
 import {
   supabaseConfigured,
   listStates,
   listOffices,
   listParties,
+  listLgas,
   findScenarioByScenarioId,
   defaultFederationReference,
   defaultScenarioStartState,
@@ -488,15 +490,16 @@ function FilesScreen({ p, onOpen, onOpenDrawer }: {
 
 // ---- onboarding step components (first-open shell) ----
 
-function PickStateStep({ states, stateCode, onState, onBack }: {
+function PickStateStep({ states, stateCode, onState, onBack, sub }: {
   states: import('./profile').FederationState[]
   stateCode: string | null
   onState: (code: string) => void
   onBack: () => void
+  sub?: string
 }) {
   return (
     <div className="ob-step">
-      <div className="ob-sub">Pick the state you will govern. All 36 states + FCT are playable.</div>
+      <div className="ob-sub">{sub ?? 'Pick the state you will govern. The 36 states, or the FCT as its Minister.'}</div>
       <div className="ob-state-list">
         {states.map((s: FederationState) => (
           <button
@@ -511,6 +514,86 @@ function PickStateStep({ states, stateCode, onState, onBack }: {
       </div>
       {stateCode && (
         <button className="ob-again" onClick={() => onState('')}>choose a different state</button>
+      )}
+      <div className="ob-foot">
+        <button className="ob-back" onClick={onBack}>back</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- post picker: only offices the catalogue marks playable (§federation) ---------- */
+function PostStep({ offices, onPost, onBack }: {
+  offices: FederationOffice[]
+  onPost: (office: FederationOffice) => void
+  onBack: () => void
+}) {
+  const groups = TIER_ORDER
+    .map(tier => ({ tier, items: offices.filter(o => o.tier === tier) }))
+    .filter(g => g.items.length > 0)
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">Pick the office you will hold. The constitution fixes what it can do — the rest is yours.</div>
+      {groups.map(g => (
+        <div className="ob-post-group" key={g.tier}>
+          <div className="ob-choices-label">{TIER_LABEL[g.tier] ?? g.tier}</div>
+          <div className="ob-state-list">
+            {g.items.map(o => (
+              <button key={o.id} className="ob-state" onClick={() => onPost(o)}>
+                <div className="ob-state-name">{o.post}</div>
+                <div className="ob-state-meta">{o.route.toUpperCase()} · {o.jurisdiction.replace(/_/g, ' ').toUpperCase()}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="ob-foot">
+        <button className="ob-back" onClick={onBack}>back to the desk</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- LGA step: only the Chairman tier needs a third-level jurisdiction ---------- */
+function LgaStep({ state, onLga, onBack }: {
+  state: import('./profile').FederationState
+  onLga: (lga: FederationLga) => void
+  onBack: () => void
+}) {
+  const [lgas, setLgas] = useState<FederationLga[] | null>(null)
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    let live = true
+    listLgas(state.code)
+      .then(rows => { if (live) setLgas(rows) })
+      .catch(() => { if (live) setLgas([]) })
+    return () => { live = false }
+  }, [state.code])
+  const needle = query.trim().toLowerCase()
+  const shown = (lgas ?? []).filter(l => l.name.toLowerCase().includes(needle))
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">Which local government? {state.name} council — the third tier, funded through the state joint account.</div>
+      <div className="ob-field">
+        <label className="ob-label">FILTER</label>
+        <input
+          className="ob-input" value={query} onChange={e => setQuery(e.target.value)}
+          placeholder="start typing a council name"
+        />
+      </div>
+      {lgas === null ? (
+        <div className="ob-sub">Reading the council register…</div>
+      ) : shown.length === 0 ? (
+        <div className="ob-sub">No council matches “{query}”.</div>
+      ) : (
+        <div className="ob-state-list">
+          {shown.map(l => (
+            <button key={l.id} className="ob-state" onClick={() => onLga(l)}>
+              <div className="ob-state-name">{l.name}</div>
+              <div className="ob-state-meta">{state.name} · LGA</div>
+            </button>
+          ))}
+        </div>
       )}
       <div className="ob-foot">
         <button className="ob-back" onClick={onBack}>back</button>
@@ -602,7 +685,7 @@ function ProfileSheetStep({ sheet, onAccept, onBack }: {
       <div className="ob-sheet">
         <div className="ob-sheet-row"><span className="ob-sheet-k">NAME</span><span className="ob-sheet-v">{sheet.name}</span></div>
         <div className="ob-sheet-row"><span className="ob-sheet-k">HANDLE</span><span className="ob-sheet-v">{sheet.handle}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">STATE</span><span className="ob-sheet-v">{sheet.state} ({sheet.capital})</span></div>
+        <div className="ob-sheet-row"><span className="ob-sheet-k">{sheet.stateLabel}</span><span className="ob-sheet-v">{sheet.state} ({sheet.capital})</span></div>
         {sheet.lga && <div className="ob-sheet-row"><span className="ob-sheet-k">LGA</span><span className="ob-sheet-v">{sheet.lga}</span></div>}
         {sheet.district && <div className="ob-sheet-row"><span className="ob-sheet-k">SENATORIAL DISTRICT</span><span className="ob-sheet-v">{sheet.district}</span></div>}
         <div className="ob-sheet-row"><span className="ob-sheet-k">AGE</span><span className="ob-sheet-v">{sheet.age}</span></div>
@@ -765,7 +848,7 @@ export default function App() {
   const [persist, setPersist] = useState<Persist>(load)
 
   // ---- first-open gate: profile + onboarding (Supabase-backed when configured) ----
-  type OnboardingPhase = 'none' | 'pick-state' | 'prologue' | 'profile-sheet' | 'entering-desk'
+  type OnboardingPhase = 'none' | 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet' | 'entering-desk'
   const [onboarding, setOnboarding] = useState<{
     phase: OnboardingPhase
     states: import('./profile').FederationState[]
@@ -778,6 +861,7 @@ export default function App() {
     scar: 'none' | 'contract-query' | 'protest' | null
     name: string
     age: string
+    lgaName: string | null
     sheet: import('./profile').ProfileSheet | null
     error: string | null
   } | null>(null)
@@ -837,6 +921,7 @@ export default function App() {
         scar: 'none',
         name: 'M. A. Bamgboye',
         age: '52',
+        lgaName: null,
         sheet,
         error: null,
       })
@@ -882,6 +967,7 @@ export default function App() {
           scar: 'none',
           name: 'M. A. Bamgboye',
           age: '52',
+          lgaName: null,
           sheet,
           error: null,
         })
@@ -1058,12 +1144,48 @@ export default function App() {
               <h1 className="ob-title">NEW FILE — CHOOSE YOUR POST</h1>
               {onboarding.error ? (
                 <div className="ob-error">{onboarding.error}</div>
+              ) : onboarding.phase === 'pick-post' ? (
+                <PostStep
+                  offices={selectableOffices(onboarding.offices)}
+                  onPost={office => setOnboarding(o => {
+                    if (!o) return null
+                    const route = postRoute(office)
+                    if (route.kind === 'direct') {
+                      // appointed/nationwide posts need no jurisdiction step (FCT seat = Abuja)
+                      return { ...o, phase: 'prologue', officeId: office.id, stateCode: route.stateCode, lgaName: null }
+                    }
+                    return { ...o, phase: 'pick-state', officeId: office.id, stateCode: null, lgaName: null }
+                  })}
+                  onBack={() => setOnboarding(null)}
+                />
               ) : onboarding.phase === 'pick-state' ? (
                 <PickStateStep
-                  states={onboarding.states}
+                  states={stateChoicesFor(
+                    onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE,
+                    onboarding.states,
+                  )}
                   stateCode={onboarding.stateCode}
-                  onState={stateCode => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode, officeId: startingOfficeForState(stateCode)} : null))}
-                  onBack={() => setOnboarding(null)}
+                  sub={onboarding.officeId === 'local/chairman'
+                    ? 'Which state is your council in? The 774 LGAs sit under the states and the FCT.'
+                    : onboarding.officeId === 'state/governor'
+                      ? 'Pick the state you will govern. The 36 states — the FCT has no governorship (s.299).'
+                      : undefined}
+                  onState={stateCode => setOnboarding(o => {
+                    if (!o) return null
+                    const office = o.offices.find(x => x.id === o.officeId)
+                    const route = office ? postRoute(office) : null
+                    if (route?.kind === 'state-then-lga') {
+                      return { ...o, phase: 'pick-lga', stateCode }
+                    }
+                    return { ...o, phase: 'prologue', stateCode }
+                  })}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', stateCode:null, lgaName:null} : null))}
+                />
+              ) : onboarding.phase === 'pick-lga' ? (
+                <LgaStep
+                  state={onboarding.states.find(s => s.code === onboarding.stateCode) ?? DELTA_TUTORIAL_STATE}
+                  onLga={lga => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode: lga.stateCode, lgaName: lga.name} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', lgaName:null} : null))}
                 />
               ) : onboarding.phase === 'prologue' ? (
                 <PrologueStep
@@ -1080,15 +1202,14 @@ export default function App() {
                   onBringer={id => setOnboarding(o => (o ? {...o, bringer: id} : null))}
                   onScar={id => setOnboarding(o => (o ? {...o, scar: id} : null))}
                   onDone={() => setOnboarding(o => (o ? nextSheetState(o as import('./profile').OnboardingState) : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', origin:null,bringer:null,scar:null} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', origin:null,bringer:null,scar:null,lgaName:null} : null))}
                 />
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
                 <ProfileSheetStep
                   sheet={onboarding.sheet}
                   onAccept={() => setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))}
-                  /* revise: go back to the post picker (the current state stays selected) —
-                     jumping straight to the prologue hid the 37-state list behind a second 'back' */
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', origin:null,bringer:null,scar:null} : null))}
+                  /* revise: back to the post picker — the record you are revising starts with the office */
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', origin:null,bringer:null,scar:null,lgaName:null} : null))}
                 />
               ) : null}
             </div>

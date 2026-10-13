@@ -169,7 +169,7 @@ export async function listOffices(): Promise<FederationOffice[]> {
   }
   const { data, error } = await client
     .from('federation_offices')
-    .select('id, tier, post, route, jurisdiction, term_note, powers, revenue_map, authority_note')
+    .select('id, tier, post, route, jurisdiction, term_note, powers, revenue_map, authority_note, playable')
     .order('tier, post')
   if (error) throw error
   return (data ?? []).map((r: any) => ({
@@ -179,6 +179,7 @@ export async function listOffices(): Promise<FederationOffice[]> {
     route: r.route,
     jurisdiction: r.jurisdiction,
     termNote: r.term_note,
+    playable: Boolean(r.playable),
     powers: (r.powers as string[]) ?? [],
     revenueMap: (r.revenue_map as Record<string, boolean>) ?? {},
     authorityNote: r.authority_note,

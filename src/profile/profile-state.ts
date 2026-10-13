@@ -8,8 +8,9 @@ import { sheetFromAxes, prologueAxes } from './profile-sheet'
 import { ORIGINS, BRINGERS, FIRST_SCARS } from './prologue'
 import { OPENING_BALANCE } from '../content'
 import { FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE } from './delta-tutorial'
+import { PLAYABLE_OFFICES } from './playable-offices'
 
-export type OnboardingPhase = 'pick-state' | 'prologue' | 'profile-sheet'
+export type OnboardingPhase = 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet'
 
 export interface OnboardingState {
   phase: OnboardingPhase
@@ -23,6 +24,8 @@ export interface OnboardingState {
   scar: FirstScar | null
   name: string
   age: string
+  /** set only for the LGA tier (Chairman) — the territory a state-level post does not need */
+  lgaName: string | null
   sheet: ReturnType<typeof sheetFromAxes> | null
   error: string | null
 }
@@ -33,7 +36,7 @@ export function defaultState(
   parties: FederationParty[],
 ): OnboardingState {
   return {
-    phase: 'pick-state',
+    phase: 'pick-post',
     states,
     offices,
     parties,
@@ -44,6 +47,7 @@ export function defaultState(
     scar: null,
     name: '',
     age: '',
+    lgaName: null,
     sheet: null,
     error: null,
   }
@@ -64,13 +68,49 @@ export function startingOfficeForState(stateCode: string): string {
   return stateCode === FCT_STATE_CODE ? FCT_OFFICE_ID : STATE_GOVERNOR_OFFICE_ID
 }
 
+// ---- post → jurisdiction ----
+//
+// A post decides what the player still has to choose:
+//   President        — nationwide; the seat of government is the FCT (Abuja), so there is
+//                      nothing left to pick before the prologue.
+//   Governor         — one of the 36 states (the FCT is not offered: s.299).
+//   FCT Minister     — the territory itself, appointed, nothing to pick.
+//   LGA Chairman     — a state, then one of its LGAs.
+export type PostRoute =
+  | { kind: 'direct'; stateCode: string }
+  | { kind: 'state' }
+  | { kind: 'state-then-lga' }
+
+export function postRoute(office: FederationOffice): PostRoute {
+  if (office.tier === 'fct') return { kind: 'direct', stateCode: FCT_STATE_CODE }
+  if (office.id === 'federal/president') return { kind: 'direct', stateCode: FCT_STATE_CODE }
+  if (office.jurisdiction === 'lga') return { kind: 'state-then-lga' }
+  return { kind: 'state' }
+}
+
+/** Which states the jurisdiction step offers for a post. */
+export function stateChoicesFor(office: FederationOffice, states: FederationState[]): FederationState[] {
+  const route = postRoute(office)
+  if (route.kind === 'state-then-lga') return states // every state + FCT has LGAs
+  return states.filter(s => s.tier !== 'fct')
+}
+
+/** The playable offices the picker shows, taken from the live catalogue when it carries the
+    playable flag, and from the canonical set otherwise. */
+export function selectableOffices(offices: FederationOffice[]): FederationOffice[] {
+  const flagged = offices.filter(o => o.playable)
+  if (flagged.length > 0) return flagged
+  const have = new Set(offices.map(o => o.id))
+  return PLAYABLE_OFFICES.filter(o => have.has(o.id))
+}
+
 /** The picker must never dead-end on a missing reference row: if the live
     federation_offices table has not been migrated yet (the FCT row ships in
     migration 002), merge the canonical definitions in so the chosen card still
     resolves to a real office. */
 export function ensureReferenceOffices(offices: FederationOffice[]): FederationOffice[] {
   const have = new Set(offices.map(o => o.id))
-  const required = [FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE]
+  const required = [...PLAYABLE_OFFICES, FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE]
   return [...offices, ...required.filter(o => !have.has(o.id))]
 }
 
@@ -121,6 +161,7 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
       party?.name ?? null,
       s.name || 'M. A. Bamgboye',
       s.age || null,
+      s.lgaName,
     ),
     error: null,
   }

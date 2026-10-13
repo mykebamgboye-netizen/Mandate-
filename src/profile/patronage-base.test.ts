@@ -22,6 +22,7 @@ const base = {
   scar: 'none' as const,
   name: 'A. Tester',
   age: '34',
+  lgaName: null,
   sheet: null,
   error: null,
 }

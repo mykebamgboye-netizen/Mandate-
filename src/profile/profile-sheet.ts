@@ -9,6 +9,8 @@ export interface ProfileSheet {
   name: string
   handle: string
   state: string
+  /** 'STATE' normally; 'SEAT' for nationwide posts (the President sits in Abuja) */
+  stateLabel: string
   capital: string
   lga: string | null
   district: string | null
@@ -50,6 +52,7 @@ export function sheetFromAxes(
   partyName: string | null,
   name: string,
   age: string | null,
+  lgaName?: string | null,
 ): ProfileSheet {
   const axesRows = [
     { label: 'COMPETENCE', value: axes.competence.toFixed(0), band: bpBand(axes.competence) },
@@ -69,14 +72,22 @@ export function sheetFromAxes(
     patrons.push({ name: patron.name, role: patron.role, loyalty: patron.loyalty.toString() })
   }
 
-  const officeLabel: string = office.tier.startsWith('fct') ? 'FCT ADMINISTRATION' : 'STATE GOVERNMENT'
+  /* Each tier names its own government — a President does not run a 'STATE GOVERNMENT'. */
+  const officeLabel: string =
+    office.tier === 'federal' ? 'FEDERAL GOVERNMENT'
+    : office.tier === 'fct' ? 'FCT ADMINISTRATION'
+    : office.tier === 'local' ? 'LOCAL GOVERNMENT'
+    : 'STATE GOVERNMENT'
+  /* A nationwide post has a seat, not a state: the President governs from Abuja. */
+  const stateLabel = office.jurisdiction === 'nation' ? 'SEAT' : 'STATE'
 
   return {
     name,
     handle: name.trim().split(/\s+/).map(s => s[0]).join('').toUpperCase().slice(0, 4) || 'PROF',
     state: stateName,
+    stateLabel,
     capital: stateCapital,
-    lga: null,
+    lga: lgaName ?? null,
     district: null,
     age: age ?? '—',
     office: officeLabel,

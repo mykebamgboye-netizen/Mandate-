@@ -94,6 +94,8 @@ export interface FederationParty {
 export interface FederationOffice {
   id: string
   tier: Tier
+  /** offered by the post picker (federation_offices.playable, migration 003) */
+  playable?: boolean
   post: string
   route: Route
   jurisdiction: Jurisdiction

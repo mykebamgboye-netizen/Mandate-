@@ -1313,3 +1313,8 @@ button { font-family: inherit; cursor: pointer; }
   .ob-sheet-axes { grid-template-columns: 1fr; }
   .ob-sheet-row { font-size: 12px; }
 }
+
+/* ---------- post picker: offices grouped by tier ---------- */
+.ob-post-group { margin-bottom: 14px; }
+.ob-post-group .ob-state-list { margin-bottom: 4px; }
+.ob-post-group .ob-choices-label { color: var(--red); }
