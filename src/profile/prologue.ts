@@ -3,7 +3,7 @@
 // so the first opening feels intentional and the profile is already shaped by the moment the
 // player enters the desk.
 
-import type { ProfileOffice, ProfileAxes } from './types'
+import type { ProfileOffice, ProfileAxes, ProfileIdentity } from './types'
 import { normalizeAxes } from './schema'
 
 export type Origin = 'civil-service' | 'party-youth' | 'business' | 'activist'
@@ -149,26 +149,14 @@ export const FIRST_SCARS: ScarChoice[] = [
 // Apply a prologue to a candidate profile object (client-side before the DB write).
 export function applyPrologue(
   base: ProfileOffice,
-  identity: {
-    name: string
-    stateCode: string
-    lgaName: string | null
-    senatorialDistrict: string | null
-    age: number | null
-  },
+  identity: ProfileIdentity,
   partyCode: string | null,
   origin: Origin,
   bringer: Bringer,
   scar: FirstScar,
 ): {
   office: ProfileOffice
-  identity: {
-    name: string
-    stateCode: string
-    lgaName: string | null
-    senatorialDistrict: string | null
-    age: number | null
-  }
+  identity: ProfileIdentity
   party: {
     current: string | null
     history: { party: string; window: string }[]
@@ -201,11 +189,13 @@ export function applyPrologue(
   const partyHistory: { party: string; window: string }[] = []
   if (partyCode && bringer === 'godfather') {
     partyHistory.push({ party: partyCode, window: 'prior term' })
+  } else if (partyCode && (bringer === 'technocrat' || bringer === 'grassroots')) {
+    partyHistory.push({ party: partyCode, window: 'prior term' })
   }
 
   return {
     office: base,
-    identity,
+    identity: identity as ProfileIdentity,
     party: {
       current: partyCode,
       history: partyHistory,
@@ -216,3 +206,12 @@ export function applyPrologue(
     patron,
   }
 }
+
+
+export const PARTIES: { id: string; name: string; note: string }[] = [
+  { id: 'APC', name: 'All Progressives Congress', note: 'now ruling — the machine the outgoing aide rode.' },
+  { id: 'LP', name: 'Labour Party', note: 'the new organizing base, the one you can break or ride.' },
+  { id: 'PDP', name: 'People’s Democratic Party', note: 'the old opposition — institutional memory, still deep pockets.' },
+  { id: 'NNP', name: 'National Rescue Party', note: 'a smaller current — clean break or ghost coalition.' },
+  { id: 'APGA', name: 'All Progressives Grand Alliance', note: 'regional spine, faith-faithful, hard to swamp.' },
+]

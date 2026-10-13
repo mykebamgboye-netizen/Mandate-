@@ -210,7 +210,7 @@ export async function findProfileById(id: string): Promise<Profile | null> {
 }
 
 export async function createProfile(input: {
-  handle: string
+  handle: string | null
   identity: ProfileIdentity
   office: ProfileOffice
   party: ProfileParty
@@ -232,7 +232,7 @@ export async function createProfile(input: {
     const patronageBank = input.patronageBank ?? 0
     return {
       id: 'local/' + input.handle,
-      handle: input.handle,
+      handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       identity,
@@ -251,7 +251,7 @@ export async function createProfile(input: {
   const { data, error } = await client
     .from('profiles')
     .insert({
-      handle: input.handle,
+      handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
       identity: input.identity,
       office: input.office,
       party: input.party,

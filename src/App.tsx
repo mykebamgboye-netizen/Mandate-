@@ -20,13 +20,9 @@ import {
   listOffices,
   listParties,
   listLgas,
-  findScenarioByScenarioId,
   defaultFederationReference,
-  defaultScenarioStartState,
 } from './profile/client'
 import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
-import { sheetFromAxes } from './profile/profile-sheet'
-const DEFAULT_SCENARIO_START_STATE = defaultScenarioStartState()
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { HoldToCommit, SPEC } from './hold'
@@ -602,16 +598,101 @@ function LgaStep({ state, onLga, onBack }: {
   )
 }
 
-function PrologueStep({ origin, bringer, scar, name, age, stateName, office, setName, setAge, onOrigin, onBringer, onScar, onDone, onBack }: {
+/* ---------- blank-first identity form ----------
+   The player types their own record. Nothing here is pre-filled from an NPC; the Delta
+   tutorial is only the scenario you land in AFTER you have chosen office + identity. */
+function IdentityStep({ stateName, office, name, age, pronouns, locale, bio, altName, setName, setAge, setPronouns, setLocale, setBio, setAltName, onDone, onBack }: {
+  stateName: string
+  office: import('./profile').FederationOffice
+  name: string
+  age: string
+  pronouns: string
+  locale: string
+  bio: string
+  altName: string
+  setName: (v: string) => void
+  setAge: (v: string) => void
+  setPronouns: (v: string) => void
+  setLocale: (v: string) => void
+  setBio: (v: string) => void
+  setAltName: (v: string) => void
+  onDone: () => void
+  onBack: () => void
+}) {
+  const postLine = office.tier === 'fct'
+    ? `${office.post.toUpperCase()} · ${stateName.toUpperCase()}`
+    : `${office.post.toUpperCase()} OF ${stateName.toUpperCase()}`
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">You picked {postLine}. Now choose who you are — this is your record, typed by you, not pulled from a file.</div>
+      <div className="ob-post">POST — {postLine}</div>
+      <div className="ob-field">
+        <label className="ob-label">NAME</label>
+        <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
+      </div>
+      <div className="ob-field">
+        <label className="ob-label">AGE</label>
+        <input className="ob-input" type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 52" />
+      </div>
+      <div className="ob-field">
+        <label className="ob-label">PRONOUNS</label>
+        <input className="ob-input" value={pronouns} onChange={e => setPronouns(e.target.value)} placeholder="e.g. he/him" />
+      </div>
+      <div className="ob-field">
+        <label className="ob-label">PHONE LOCALE</label>
+        <input className="ob-input" value={locale} onChange={e => setLocale(e.target.value)} placeholder="e.g. +234" />
+      </div>
+      <div className="ob-field">
+        <label className="ob-label">OTHER NAME</label>
+        <input className="ob-input" value={altName} onChange={e => setAltName(e.target.value)} placeholder="e.g. an alias, a former name" />
+      </div>
+      <div className="ob-field">
+        <label className="ob-label">BIO / NOTES</label>
+        <textarea className="ob-textarea" value={bio} onChange={e => setBio(e.target.value)} placeholder="optional — your own note to yourself" rows={4} />
+      </div>
+      <div className="ob-foot">
+        <button className="ob-done" disabled={!name.trim()} onClick={() => { onDone() }}>continue to my party</button>
+        <button className="ob-back" onClick={onBack}>back</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- player-chosen party picker ----------
+   The player picks their own party before the prologue now. The godfather / grassroots /
+   technocrat step still shapes axes and patronage, but the party the desk travels under
+   is the player's choice, not an NPC's. */
+function PartyStep({ parties, partyCode, onParty, onBack }: {
+  parties: import('./profile').FederationParty[]
+  partyCode: string | null
+  onParty: (code: string) => void
+  onBack: () => void
+}) {
+  return (
+    <div className="ob-step">
+      <div className="ob-sub">Pick the party you will travel under. The prologue still shapes who brought you — this is the banner you choose.</div>
+      <div className="ob-choices">
+        {parties.map((p: import('./profile').FederationParty) => (
+          <button key={p.code} className={`ob-choice${partyCode === p.code ? ' selected' : ''}`} onClick={() => onParty(p.code)}>
+            <div className="ob-choice-label">{p.name}</div>
+            <div className="ob-choice-sub">{p.note}</div>
+          </button>
+        ))}
+      </div>
+      <div className="ob-foot">
+        <button className="ob-back" onClick={onBack}>back</button>
+      </div>
+    </div>
+  )
+}
+
+function PrologueStep({ origin, bringer, scar, name, stateName, office, onOrigin, onBringer, onScar, onDone, onBack }: {
   origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
   bringer: 'godfather' | 'grassroots' | 'technocrat' | null
   scar: 'none' | 'contract-query' | 'protest' | null
   name: string
-  age: string
   stateName: string
   office: import('./profile').FederationOffice
-  setName: (v: string) => void
-  setAge: (v: string) => void
   onOrigin: (o: 'civil-service' | 'party-youth' | 'business' | 'activist') => void
   onBringer: (b: 'godfather' | 'grassroots' | 'technocrat') => void
   onScar: (s: 'none' | 'contract-query' | 'protest') => void
@@ -627,14 +708,6 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, office, set
     <div className="ob-step">
       <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
       <div className="ob-post">POST — {postLine}</div>
-      <div className="ob-field">
-        <label className="ob-label">NAME</label>
-        <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">AGE</label>
-        <input className="ob-input" type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 52" />
-      </div>
       <div className="ob-choices">
         <div className="ob-choices-label">Where did you come from?</div>
         {ORIGINS.map((o: typeof ORIGINS[number]) => (
@@ -665,7 +738,7 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, office, set
       <div className="ob-foot">
         <button
           className="ob-done"
-          disabled={!origin || !bringer || !scar || !name.trim()}
+          disabled={!origin || !bringer || !scar}
           onClick={() => { onDone() }}
         >review your record</button>
         <button className="ob-back" onClick={onBack}>back</button>
@@ -848,7 +921,7 @@ export default function App() {
   const [persist, setPersist] = useState<Persist>(load)
 
   // ---- first-open gate: profile + onboarding (Supabase-backed when configured) ----
-  type OnboardingPhase = 'none' | 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet' | 'entering-desk'
+  type OnboardingPhase = 'none' | 'pick-post' | 'pick-identity' | 'pick-state' | 'pick-lga' | 'pick-party' | 'prologue' | 'profile-sheet' | 'entering-desk'
   const [onboarding, setOnboarding] = useState<{
     phase: OnboardingPhase
     states: import('./profile').FederationState[]
@@ -861,6 +934,11 @@ export default function App() {
     scar: 'none' | 'contract-query' | 'protest' | null
     name: string
     age: string
+    pronouns: string
+    locale: string
+    bio: string
+    altName: string
+    partyCode: string | null
     lgaName: string | null
     sheet: import('./profile').ProfileSheet | null
     error: string | null
@@ -882,6 +960,11 @@ export default function App() {
 
   // First-open: boot the onboarding shell from Supabase when configured, else from the
   // local Delta tutorial fallback. This keeps the prototype bootable without a live DB.
+  //
+  // The first screen the player sees is the office picker; the NPC delta (M. A. Bamgboye /
+  // 52 / Delta governor) is ONLY the fallback scenario the game drops into AFTER the player
+  // has chosen office + identity, and only when no Supabase is configured. It is never served
+  // as the player's own record on first open.
   useEffect(() => {
     if (persist.profileHandle) return
     let settled = false
@@ -892,37 +975,31 @@ export default function App() {
     }
 
     const bootLocalFallback = () => {
-      // Local fallback: Delta tutorial state + the local Delta tutorial profile sheet.
+      // Local fallback: Delta tutorial reference data, but the player still starts on the
+      // office picker with a blank identity. The Delta scenario only becomes the scenario / sheet
+      // after the player picks Governor and a state, or after they accept a revised record.
       const states = defaultFederationReference.states
       const offices = defaultFederationReference.offices
       const parties = defaultFederationReference.parties
-      const stateCode = 'DT'
-      const officeId = 'state/governor'
-      const sheet = sheetFromAxes(
-        { competence: 6200, integrity: 4800, popularSupport: 5500, partyLoyalty: 7000, eliteTrust: 5800, pressTone: -500, constituencyAlignment: 7000, mandateLegitimacy: 8500, institutionalMemory: 4000, patronageBank: OPENING_BALANCE },
-        OPENING_BALANCE,
-        undefined,
-        'Delta',
-        'Asaba',
-        DELTA_TUTORIAL_OFFICE,
-        'APC',
-        'M. A. Bamgboye',
-        '52',
-      )
       settle({
-        phase: 'profile-sheet',
+        phase: 'pick-post',
         states,
         offices,
         parties,
-        stateCode,
-        officeId,
-        origin: 'civil-service',
-        bringer: 'grassroots',
-        scar: 'none',
-        name: 'M. A. Bamgboye',
-        age: '52',
+        stateCode: null,
+        officeId: null,
+        origin: null,
+        bringer: null,
+        scar: null,
+        name: '',
+        age: '',
+        pronouns: '',
+        locale: '',
+        bio: '',
+        altName: '',
+        partyCode: null,
         lgaName: null,
-        sheet,
+        sheet: null,
         error: null,
       })
     }
@@ -931,48 +1008,37 @@ export default function App() {
       try {
         const configured = supabaseConfigured()
         if (!configured) { bootLocalFallback(); return }
-        const [states, officesFromDb, parties, scenario] = await Promise.all([
+        const [states, officesFromDb, parties] = await Promise.all([
           listStates(),
           listOffices(),
           listParties(),
-          findScenarioByScenarioId('delta/2026/w41'),
         ])
         // the FCT has no governorship (s.299); its office row ships in migration 002, so a
         // not-yet-migrated database still gets a working picker rather than an 'Office not found.'
         const offices = ensureReferenceOffices(officesFromDb)
-        const state = scenario ?? DEFAULT_SCENARIO_START_STATE
-        const st = states.find(s => s.code === state.stateCode) ?? DELTA_TUTORIAL_STATE
-        const office = offices.find(o => o.id === state.officeId) ?? DELTA_TUTORIAL_OFFICE
-        const party = parties.find(p => p.code === 'APC') ?? { code: 'APC', name: 'All Progressives Congress', note: '' }
-        const sheet = sheetFromAxes(
-          { competence: 6200, integrity: 4800, popularSupport: 5500, partyLoyalty: 7000, eliteTrust: 5800, pressTone: -500, constituencyAlignment: 7000, mandateLegitimacy: 8500, institutionalMemory: 4000, patronageBank: OPENING_BALANCE },
-          OPENING_BALANCE,
-          undefined,
-          st.name,
-          st.capital,
-          office,
-          party.name,
-          'M. A. Bamgboye',
-          '52',
-        )
         settle({
-          phase: 'profile-sheet',
+          phase: 'pick-post',
           states,
           offices,
           parties,
-          stateCode: st.code,
-          officeId: office.id,
-          origin: 'civil-service',
-          bringer: 'grassroots',
-          scar: 'none',
-          name: 'M. A. Bamgboye',
-          age: '52',
+          stateCode: null,
+          officeId: null,
+          origin: null,
+          bringer: null,
+          scar: null,
+          name: '',
+          age: '',
+          pronouns: '',
+          locale: '',
+          bio: '',
+          altName: '',
+          partyCode: null,
           lgaName: null,
-          sheet,
+          sheet: null,
           error: null,
         })
       } catch (err) {
-        // Any Supabase read failure falls back to the local Delta tutorial profile.
+        // Any Supabase read failure falls back to the local Delta tutorial picker.
         console.warn('profile boot fell back to local Delta tutorial:', err)
         bootLocalFallback()
       }
@@ -1187,22 +1253,45 @@ export default function App() {
                   onLga={lga => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode: lga.stateCode, lgaName: lga.name} : null))}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', lgaName:null} : null))}
                 />
+              ) : onboarding.phase === 'pick-identity' ? (
+                <IdentityStep
+                  stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
+                  office={onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE}
+                  name={onboarding.name}
+                  age={onboarding.age}
+                  pronouns={onboarding.pronouns}
+                  locale={onboarding.locale}
+                  bio={onboarding.bio}
+                  altName={onboarding.altName}
+                  setName={v => setOnboarding(o => (o ? {...o, name: v} : null))}
+                  setAge={v => setOnboarding(o => (o ? {...o, age: v} : null))}
+                  setPronouns={v => setOnboarding(o => (o ? {...o, pronouns: v} : null))}
+                  setLocale={v => setOnboarding(o => (o ? {...o, locale: v} : null))}
+                  setBio={v => setOnboarding(o => (o ? {...o, bio: v} : null))}
+                  setAltName={v => setOnboarding(o => (o ? {...o, altName: v} : null))}
+                  onDone={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'prologue', pronouns:'', locale:'', bio:'', altName:''} : null))}
+                />
+              ) : onboarding.phase === 'pick-party' ? (
+                <PartyStep
+                  parties={onboarding.parties}
+                  partyCode={onboarding.partyCode}
+                  onParty={code => setOnboarding(o => (o ? {...o, partyCode: code} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
+                />
               ) : onboarding.phase === 'prologue' ? (
                 <PrologueStep
                   origin={onboarding.origin}
                   bringer={onboarding.bringer}
                   scar={onboarding.scar}
                   name={onboarding.name}
-                  age={onboarding.age}
                   stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
                   office={onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE}
-                  setName={v => setOnboarding(o => (o ? {...o, name: v} : null))}
-                  setAge={v => setOnboarding(o => (o ? {...o, age: v} : null))}
                   onOrigin={id => setOnboarding(o => (o ? {...o, origin: id} : null))}
                   onBringer={id => setOnboarding(o => (o ? {...o, bringer: id} : null))}
                   onScar={id => setOnboarding(o => (o ? {...o, scar: id} : null))}
                   onDone={() => setOnboarding(o => (o ? nextSheetState(o as import('./profile').OnboardingState) : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', origin:null,bringer:null,scar:null,lgaName:null} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
                 />
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
                 <ProfileSheetStep

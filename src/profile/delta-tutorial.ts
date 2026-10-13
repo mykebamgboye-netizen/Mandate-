@@ -84,10 +84,16 @@ export function deltaTutorialProfile(identity: Partial<ProfileIdentity> = {}): P
     updatedAt: new Date().toISOString(),
     identity: {
       name: 'M. A. Bamgboye',
-      stateCode: 'DT',
+      stateCode: DELTA_TUTORIAL_STATE.code,
       lgaName: null,
       senatorialDistrict: null,
+      pronouns: null,
+      locale: null,
+      phoneHome: null,
+      altName: null,
+      bio: null,
       age: 52,
+      chosenParty: 'APC',
       ...identity,
     },
     office: {

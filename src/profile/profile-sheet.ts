@@ -20,6 +20,7 @@ export interface ProfileSheet {
   route: string
   termStart: string
   party: string
+  partyCode: string | null
   defectionRisk: string
   patronageBank: string
   axes: { label: string; value: string; band: string }[]
@@ -95,6 +96,7 @@ export function sheetFromAxes(
     route: office.route.toUpperCase(),
     termStart: '—',
     party: partyName ?? 'INDEPENDENT',
+    partyCode: partyName ?? null,
     defectionRisk: '—',
     patronageBank: patronageBank.toLocaleString('en-NG'),
     axes: axesRows,

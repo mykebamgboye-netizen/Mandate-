@@ -22,8 +22,15 @@ export interface OnboardingState {
   origin: Origin | null
   bringer: Bringer | null
   scar: FirstScar | null
+  /** blank first-open: the player types their own; never pre-filled with an NPC name */
   name: string
   age: string
+  pronouns: string
+  locale: string
+  bio: string
+  altName: string
+  /** player-chosen party from the first-open party picker */
+  partyCode: string | null
   /** set only for the LGA tier (Chairman) — the territory a state-level post does not need */
   lgaName: string | null
   sheet: ReturnType<typeof sheetFromAxes> | null
@@ -47,6 +54,11 @@ export function defaultState(
     scar: null,
     name: '',
     age: '',
+    pronouns: '',
+    locale: '',
+    bio: '',
+    altName: '',
+    partyCode: null,
     lgaName: null,
     sheet: null,
     error: null,
@@ -158,7 +170,9 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
       st.name,
       st.capital,
       office,
-      party?.name ?? null,
+      // party label follows the player's own first-open choice first; otherwise fall back
+      // to the live catalogue's APC row (or null), never to the NPC default.
+      s.partyCode ? s.parties.find(p => p.code === s.partyCode)?.name ?? null : party?.name ?? null,
       s.name || 'M. A. Bamgboye',
       s.age || null,
       s.lgaName,
@@ -167,8 +181,46 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
   }
 }
 
+/** Commit the sheet as "reviewed" without changing it — the accept action. */
 export function acceptSheet(s: OnboardingState): OnboardingState {
   return { ...s, phase: 'profile-sheet', error: null }
+}
+
+/** Strip the first-open-only transient fields before the sheet travels anywhere else
+   (e.g. a profile create / update call). The onboarding shell keeps name/age/pronouns/
+   locale/bio/altName/partyCode during setup; downstream profile writes only need what
+   the profile table already carries. */
+export function profileIdentityFromOnboarding(s: OnboardingState): ProfileIdentityFields {
+  return {
+    name: s.name.trim() || null,
+    stateCode: s.stateCode,
+    lgaName: s.lgaName,
+    senatorialDistrict: null,
+    pronouns: s.pronouns.trim() || null,
+    locale: s.locale.trim() || null,
+    phoneHome: null,
+    altName: s.altName.trim() || null,
+    bio: s.bio.trim() || null,
+    age: s.age.trim() ? Number(s.age) : null,
+    chosenParty: s.partyCode,
+  }
+}
+
+// A narrow shape for the identity fields the first-open form actually collects,
+// kept separate from the full ProfileIdentity so the onboarding shell does not
+// start carrying fields it does not use (e.g. office/party history).
+export interface ProfileIdentityFields {
+  name: string | null
+  stateCode: string | null
+  lgaName: string | null
+  senatorialDistrict: string | null
+  pronouns: string | null
+  locale: string | null
+  phoneHome: string | null
+  altName: string | null
+  bio: string | null
+  age: number | null
+  chosenParty: string | null
 }
 
 // Local re-export of normalizeAxes for the small state layer.

@@ -21,11 +21,25 @@ export type Jurisdiction =
   | 'faction'
 
 export interface ProfileIdentity {
-  name: string
-  stateCode: string // federation_states.code
+  /** blank until the player fills it — the first-open screen starts empty, never pre-filled */
+  name: string | null
+  /** federation_states.code */
+  stateCode: string | null
   lgaName: string | null
   senatorialDistrict: string | null
+  /** optional personal pronoun the player can keep on file */
+  pronouns: string | null
+  /** phone locale preference (decorative, desk display) */
+  locale: string | null
+
+  /** fields that an NPC or local fallback can leave blank — play can fill later */
+  phoneHome: string | null
+  altName: string | null
+  /** optional personal bio/notes the player can keep on file */
+  bio: string | null
   age: number | null
+  /** the party the player chose during first-open (player-chosen, not bringer-decided) */
+  chosenParty: string | null
 }
 
 export interface ProfileParty {
