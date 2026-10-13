@@ -533,10 +533,10 @@ function PrologueStep({ origin, bringer, scar, name, age, stateName, setName, se
   onDone: () => void
   onBack: () => void
 }) {
-  void stateName
   return (
     <div className="ob-step">
       <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
+      <div className="ob-post">POST — GOVERNOR OF {stateName.toUpperCase()}</div>
       <div className="ob-field">
         <label className="ob-label">NAME</label>
         <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
@@ -1075,7 +1075,9 @@ export default function App() {
                 <ProfileSheetStep
                   sheet={onboarding.sheet}
                   onAccept={() => setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'prologue', origin:null,bringer:null,scar:null} : null))}
+                  /* revise: go back to the post picker (the current state stays selected) —
+                     jumping straight to the prologue hid the 37-state list behind a second 'back' */
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', origin:null,bringer:null,scar:null} : null))}
                 />
               ) : null}
             </div>
