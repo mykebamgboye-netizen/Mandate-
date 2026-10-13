@@ -217,6 +217,7 @@ export async function createProfile(input: {
   axes?: Partial<ProfileAxes>
   powers?: string[]
   patronageBank?: number
+  authUserId?: string
 }): Promise<Profile> {
   const client = publicClient()
   if (!client) {
@@ -230,8 +231,9 @@ export async function createProfile(input: {
     const party = input.party
     const powers = input.powers ?? []
     const patronageBank = input.patronageBank ?? 0
+    const id = input.authUserId ?? ('local/' + input.handle)
     return {
-      id: 'local/' + input.handle,
+      id,
       handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -248,9 +250,14 @@ export async function createProfile(input: {
     ...DEFAULT_AXES,
     ...(input.axes ?? {}),
   }
+  // RLS enforces auth.uid() = id on profiles, so the row we insert must carry the
+  // authenticated user's id — not a DB-generated uuid that would silently make the
+  // player's own profile invisible to them on the next read.
+  const rowId = input.authUserId ?? undefined
   const { data, error } = await client
     .from('profiles')
     .insert({
+      ...(rowId ? { id: rowId } : {}),
       handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
       identity: input.identity,
       office: input.office,

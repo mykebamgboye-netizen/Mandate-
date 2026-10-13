@@ -10,19 +10,21 @@ import {
   type Doc, type Decision, type DecisionOption, type Ally,
 } from './content'
 
-import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState } from './profile/onboarding'
+import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState, prologueAxes } from './profile/onboarding'
 import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
-import type { FederationLga, FederationOffice, FederationState } from './profile/types'
+import type { FederationLga, FederationOffice, FederationState, ProfileIdentity, ProfileOffice, ProfileParty } from './profile/types'
+import { normalizeAxes } from './profile/schema'
 import {
   supabaseConfigured,
-  listStates,
-  listOffices,
-  listParties,
   listLgas,
   defaultFederationReference,
+  createProfile,
+  findProfileById,
 } from './profile/client'
+import { signOut } from './profile/auth'
 import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
+import { AuthSheet, handleAuthSubmit } from './profile/auth-sheet'
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { HoldToCommit, SPEC } from './hold'
@@ -80,6 +82,12 @@ function decodeSlip(code: string): Persist | null {
     if (p && typeof p === 'object' && p.marks && p.decisions) return p
   } catch { /* not a slip */ }
   return null
+}
+
+function termStartFor(officeId: string): string {
+  if (officeId === 'fct/minister') return '2026-06-01'
+  if (officeId === 'local/chairman') return '2026-07-01'
+  return '2026-05-29'
 }
 
 const EMPTY_MARK: DocMarkState = { stamps: [], annotations: [] }
@@ -810,13 +818,14 @@ function useExpanded(): boolean {
   return expanded
 }
 
-function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssue }: {
+function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssue, onSignOut }: {
   settings: GameSettings
   onChange: (patch: Partial<GameSettings>) => void
   onClose: () => void
   persist: Persist
   onImport: (p: Persist) => void
   onIssue: () => void
+  onSignOut?: () => void
 }) {
   const [slip, setSlip] = useState('')
   const [incoming, setIncoming] = useState('')
@@ -912,6 +921,11 @@ function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssu
         </div>
 
         <button className="dec-goto" onClick={onClose}>CLOSE THE DRAWER</button>
+        {persist.profileHandle ? (
+          <button className="dec-goto danger" onClick={() => { onSignOut?.(); }}>
+            SIGN OUT
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -954,38 +968,59 @@ export default function App() {
   const toastTimer = useRef(0)
   const tickTimer = useRef(0)
 
-  useEffect(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(persist)) } catch { /* storage full/blocked */ }
-  }, [persist])
+  // ---- Supabase auth gate (sign-in / sign-up sheet before first-open onboarding) ----
+  const [showAuthSheet, setShowAuthSheet] = useState(false)
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authConfirm, setAuthConfirm] = useState('')
+  const [authSubmitting, setAuthSubmitting] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const authRef = useRef<{ mode: 'sign-in' | 'sign-up' }>({ mode: 'sign-in' })
 
-  // First-open: boot the onboarding shell from Supabase when configured, else from the
-  // local Delta tutorial fallback. This keeps the prototype bootable without a live DB.
-  //
-  // The first screen the player sees is the office picker; the NPC delta (M. A. Bamgboye /
-  // 52 / Delta governor) is ONLY the fallback scenario the game drops into AFTER the player
-  // has chosen office + identity, and only when no Supabase is configured. It is never served
-  // as the player's own record on first open.
-  useEffect(() => {
-    if (persist.profileHandle) return
-    let settled = false
-    const settle = (onboarding: import('./profile').OnboardingState | null) => {
-      if (settled) return
-      settled = true
-      setOnboarding(onboarding)
+  const clearAuthFields = () => {
+    setAuthEmail('')
+    setAuthPassword('')
+    setAuthConfirm('')
+    setAuthError(null)
+  }
+
+  const handleAuth = async () => {
+    setAuthSubmitting(true)
+    setAuthError(null)
+    // Keep the latest mode in a ref so the async callback uses the right one.
+    authRef.current.mode = authMode
+    const outcome = await handleAuthSubmit(
+      authRef.current.mode,
+      authEmail,
+      authPassword,
+      authConfirm,
+    )
+    if (!outcome.ok) {
+      setAuthError(outcome.error)
+      setAuthSubmitting(false)
+      return
     }
-
-    const bootLocalFallback = () => {
-      // Local fallback: Delta tutorial reference data, but the player still starts on the
-      // office picker with a blank identity. The Delta scenario only becomes the scenario / sheet
-      // after the player picks Governor and a state, or after they accept a revised record.
-      const states = defaultFederationReference.states
-      const offices = defaultFederationReference.offices
-      const parties = defaultFederationReference.parties
-      settle({
+    const user = outcome.result.data?.user
+    if (!user) {
+      setAuthError('Sign-in returned no user — try again.')
+      setAuthSubmitting(false)
+      return
+    }
+    const authUserId = user.id
+    setPersist(p => ({ ...p, profileHandle: authUserId }))
+    setShowAuthSheet(false)
+    clearAuthFields()
+    if (authRef.current.mode === 'sign-up') {
+      // New account: boot the first-open onboarding so the player creates their profile.
+      // Use the local Delta reference data so this works without a live DB fetch here;
+      // the federation reference is re-fetched from Supabase inside the onboarding boot
+      // once profileHandle is set (see the boot effect below).
+      setOnboarding({
         phase: 'pick-post',
-        states,
-        offices,
-        parties,
+        states: defaultFederationReference.states,
+        offices: ensureReferenceOffices(defaultFederationReference.offices),
+        parties: defaultFederationReference.parties,
         stateCode: null,
         officeId: null,
         origin: null,
@@ -1002,49 +1037,120 @@ export default function App() {
         sheet: null,
         error: null,
       })
+    } else {
+      // Existing account: skip onboarding, go straight to the desk.
+      setOnboarding(null)
     }
+    setAuthSubmitting(false)
+  }
 
-    const bootFromSupabase = async () => {
-      try {
-        const configured = supabaseConfigured()
-        if (!configured) { bootLocalFallback(); return }
-        const [states, officesFromDb, parties] = await Promise.all([
-          listStates(),
-          listOffices(),
-          listParties(),
-        ])
-        // the FCT has no governorship (s.299); its office row ships in migration 002, so a
-        // not-yet-migrated database still gets a working picker rather than an 'Office not found.'
-        const offices = ensureReferenceOffices(officesFromDb)
-        settle({
-          phase: 'pick-post',
-          states,
-          offices,
-          parties,
-          stateCode: null,
-          officeId: null,
-          origin: null,
-          bringer: null,
-          scar: null,
-          name: '',
-          age: '',
-          pronouns: '',
-          locale: '',
-          bio: '',
-          altName: '',
-          partyCode: null,
-          lgaName: null,
-          sheet: null,
-          error: null,
-        })
-      } catch (err) {
-        // Any Supabase read failure falls back to the local Delta tutorial picker.
-        console.warn('profile boot fell back to local Delta tutorial:', err)
-        bootLocalFallback()
+  const handleSignOut = async () => {
+    try {
+      await signOut()
+    } catch {
+      /* best effort — the session is cleared locally either way */
+    }
+    setPersist(p => ({ ...p, profileHandle: undefined }))
+    setOnboarding(null)
+    setShowAuthSheet(supabaseConfigured() ? true : false)
+    showToast('SIGNED OUT — YOUR FILE STAYS ON THIS PHONE UNTIL YOU SIGN IN AGAIN')
+    setDrawer(false)
+  }
+
+  useEffect(() => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(persist)) } catch { /* storage full/blocked */ }
+  }, [persist])
+
+  // ---- first-open gate: auth sheet → first-open onboarding → desk ----
+  //
+  // The NPC delta (M. A. Bamgboye / 52 / Delta governor) is ONLY the fallback scenario you
+  // can land in AFTER you have chosen office + identity — and only when no Supabase is
+  // configured. It is never served as the player's own record on first open.
+  //
+  // When Supabase is configured and the player has no profileHandle, the first screen is the
+  // sign-in / sign-up sheet. Signing in (existing account) goes straight to the desk; signing
+  // up (new account) boots the first-open onboarding so the player can create their profile.
+  // When Supabase is not configured, the boot falls back to the local Delta tutorial onboarding.
+  //
+  // When handleAuth signs a player up it sets profileHandle AND sets onboarding to pick-post
+  // in the same batch; the effect below must not clobber that onboarding with the desk.
+  useEffect(() => {
+    if (persist.profileHandle) {
+      // Don't clobber an onboarding the player is actively in the middle of (sign-up sets
+      // onboarding to pick-post and profileHandle in the same batch; let that onboarding stand).
+      if (onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk') {
+        return
       }
+      if (!supabaseConfigured()) {
+        setOnboarding(null)
+        return
+      }
+      // No active onboarding — decide on whether a profile row already exists for this user.
+      findProfileById(persist.profileHandle)
+        .then(profile => {
+          if (profile) {
+            // Existing profile (sign-in, or sign-up + accept) — skip onboarding, go to the desk.
+            setOnboarding(null)
+          } else {
+            // New account that hasn't accepted yet (sign-up, not yet on the accept step) —
+            // continue the first-open onboarding so the player can create their profile.
+            setOnboarding({
+              phase: 'pick-post',
+              states: defaultFederationReference.states,
+              offices: ensureReferenceOffices(defaultFederationReference.offices),
+              parties: defaultFederationReference.parties,
+              stateCode: null,
+              officeId: null,
+              origin: null,
+              bringer: null,
+              scar: null,
+              name: '',
+              age: '',
+              pronouns: '',
+              locale: '',
+              bio: '',
+              altName: '',
+              partyCode: null,
+              lgaName: null,
+              sheet: null,
+              error: null,
+            })
+          }
+        })
+        .catch(() => {
+          // Can't reach Supabase right now — keep the player on the desk rather than
+          // throwing them back to the auth sheet.
+          setOnboarding(null)
+        })
+      return
     }
-
-    bootFromSupabase()
+    if (!supabaseConfigured()) {
+      // Local fallback: Delta tutorial reference data, blank identity, office picker first.
+      setOnboarding({
+        phase: 'pick-post',
+        states: defaultFederationReference.states,
+        offices: ensureReferenceOffices(defaultFederationReference.offices),
+        parties: defaultFederationReference.parties,
+        stateCode: null,
+        officeId: null,
+        origin: null,
+        bringer: null,
+        scar: null,
+        name: '',
+        age: '',
+        pronouns: '',
+        locale: '',
+        bio: '',
+        altName: '',
+        partyCode: null,
+        lgaName: null,
+        sheet: null,
+        error: null,
+      })
+      return
+    }
+    // Supabase configured, no profileHandle yet — show the sign-in / sign-up sheet.
+    setShowAuthSheet(true)
   }, [persist.profileHandle])
 
   const showToast = (msg: string) => {
@@ -1181,6 +1287,7 @@ export default function App() {
             try { localStorage.removeItem(STORE_KEY) } catch { /* ignore */ }
             showToast('TRANSFER SLIP ISSUED — THIS DESK IS BURNED')
           }}
+          onSignOut={handleSignOut}
         />
       )}
       {ticking && (
@@ -1200,10 +1307,91 @@ export default function App() {
     </>
   )
 
+  // Reconcile the player's first-open choices into the profile shape createProfile expects,
+  // so the accept step can persist the profile to Supabase (id = auth.uid() for RLS).
+  const profileFromOnboarding = (s: NonNullable<typeof onboarding>) => {
+    const office = s.offices.find(o => o.id === s.officeId)
+    if (!office) return null
+    return {
+      identity: {
+        name: s.name || null,
+        stateCode: s.stateCode,
+        lgaName: s.lgaName,
+        senatorialDistrict: null,
+        pronouns: s.pronouns || null,
+        locale: s.locale || null,
+        phoneHome: null,
+        altName: s.altName || null,
+        bio: s.bio || null,
+        age: s.age ? Number(s.age) : null,
+        chosenParty: s.partyCode,
+      } as ProfileIdentity,
+      office: {
+        tier: office.tier,
+        post: office.post,
+        elected: office.route === 'elected',
+        termStart: termStartFor(office.id),
+        officeId: office.id,
+      } as ProfileOffice,
+      party: {
+        current: s.partyCode,
+        history: [],
+        defectionRisk: s.bringer === 'godfather' ? 0.35 : s.bringer === 'grassroots' ? 0.15 : 0.22,
+      } as ProfileParty,
+      axes: undefined as undefined | ReturnType<typeof normalizeAxes>,
+      patronageBank: 0,
+    }
+  }
+
   const surface = (
     <>
-      {/* first-open onboarding shell: pick a federation post, run a short prologue, then enter the desk */}
-      {onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk' ? (
+      {/* Supabase auth sheet: sign-in / sign-up before first-open onboarding, when configured. */}
+      {showAuthSheet ? (
+        <main className="app-main" key="auth">
+          <div className="zoom-layer">
+            <div className="onboarding-shell">
+              <h1 className="ob-title">CLAIM YOUR FILE</h1>
+              <AuthSheet
+                email={authEmail}
+                password={authPassword}
+                confirm={authConfirm}
+                mode={authMode}
+                submitting={authSubmitting}
+                error={authError}
+                onEmail={setAuthEmail}
+                onPassword={setAuthPassword}
+                onConfirm={setAuthConfirm}
+                onMode={setAuthMode}
+                onSubmit={handleAuth}
+                onBack={() => {
+                  setShowAuthSheet(false)
+                  setOnboarding({
+                    phase: 'pick-post',
+                    states: defaultFederationReference.states,
+                    offices: ensureReferenceOffices(defaultFederationReference.offices),
+                    parties: defaultFederationReference.parties,
+                    stateCode: null,
+                    officeId: null,
+                    origin: null,
+                    bringer: null,
+                    scar: null,
+                    name: '',
+                    age: '',
+                    pronouns: '',
+                    locale: '',
+                    bio: '',
+                    altName: '',
+                    partyCode: null,
+                    lgaName: null,
+                    sheet: null,
+                    error: null,
+                  })
+                }}
+              />
+            </div>
+          </div>
+        </main>
+      ) : onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk' ? (
         <main className="app-main" key="onboarding">
           <div className="zoom-layer">
             <div className="onboarding-shell">
@@ -1296,7 +1484,45 @@ export default function App() {
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
                 <ProfileSheetStep
                   sheet={onboarding.sheet}
-                  onAccept={() => setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))}
+                  onAccept={async () => {
+                    const s = onboarding
+                    if (!s || s.phase !== 'profile-sheet' || !s.sheet) return
+                    const authUserId = persist.profileHandle
+                    if (!authUserId || !supabaseConfigured()) {
+                      setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))
+                      return
+                    }
+                    try {
+                      const profile = profileFromOnboarding(s)
+                      if (!profile) {
+                        setOnboarding(o => (o ? {...o, error: 'Office not found.'} : null))
+                        return
+                      }
+                      const base = normalizeAxes({ patronageBank: OPENING_BALANCE })
+                      profile.axes = prologueAxes(
+                        base,
+                        ORIGINS.find(o => o.id === s.origin)!.deltas,
+                        BRINGERS.find(b => b.id === s.bringer)!.deltas,
+                        FIRST_SCARS.find(sc => sc.id === s.scar)!.deltas,
+                        0,
+                      )
+                      profile.patronageBank = profile.axes.patronageBank
+                      await createProfile({
+                        handle: s.name?.trim() || authUserId,
+                        identity: profile.identity,
+                        office: profile.office,
+                        party: profile.party,
+                        axes: profile.axes,
+                        powers: s.offices.find(o => o.id === s.officeId)?.powers ?? [],
+                        patronageBank: profile.patronageBank,
+                        authUserId,
+                      })
+                      setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))
+                      showToast('YOUR FILE IS SAVED — IT TRAVELS WITH YOU')
+                    } catch (err) {
+                      setOnboarding(o => (o ? {...o, error: 'Could not save your file: ' + String(err)} : null))
+                    }
+                  }}
                   /* revise: back to the post picker — the record you are revising starts with the office */
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', origin:null,bringer:null,scar:null,lgaName:null} : null))}
                 />
