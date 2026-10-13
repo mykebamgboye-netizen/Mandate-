@@ -574,7 +574,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ---------- red pen annotation ---------- */
 .pen-area {
-  position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 8;
+  position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 20; /* above .action-bar (z 10) — the bar painted over FILE IT / CANCEL and swallowed the clicks */
   background: rgba(244,238,220,.96);
   border: 1px dashed var(--red);
   padding: 8px;
