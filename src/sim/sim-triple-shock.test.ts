@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createSectorControl } from '../sim-core'
+import { createSectorControl } from '../sim-core.ts'
 
 describe('triple-shock: oil crash + flood + ASUU', () => {
   it('Governor loses approval despite no police control after triple shock', () => {
