@@ -29,6 +29,8 @@ import { AuthSheet, handleAuthSubmit } from './profile/auth-sheet'
 import { GameContext, DEFAULT_SETTINGS, FALLBACK_SCENARIO, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { HoldToCommit, SPEC } from './hold'
+import { IcPen } from './icons'
+import { PaperDocument } from './task/paper'
 import {
   IcBriefings, IcAllies, IcDecisions, IcBudget, IcFiles, IcClock, IcLock, IcSlip,
 } from './icons'
@@ -229,14 +231,13 @@ function TrayCard({ doc, mark, decided, pending, weathered, onOpen }: {
   )
 }
 
-/* ---------- Briefings: the Situation Desk ---------- */
+/* ---------- Briefings: the Situation Desk (390×844 mobile-first) ---------- */
 const DESK_HOURS_TOTAL = 14
 
 function DeskScreen({ p, pack, onOpen, ticking, onCloseWeek }: {
   p: Persist; pack: Pack; onOpen: (id: string) => void; ticking: boolean; onCloseWeek: () => void
 }) {
   const cal = pack.scenario.calendar
-  const w = pack.scenario.w
   const docs = useMemo(() => {
     const base = [...pack.docs, ...pack.extras].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
     return p.handoverDone ? base : [pack.handover, ...base]
@@ -254,55 +255,84 @@ function DeskScreen({ p, pack, onOpen, ticking, onCloseWeek }: {
   const weathered = p.weathered ?? []
   return (
     <>
-      <div className="desk-head">
-        <span className="desk-date">{cal.dayLine}</span>
-        <span className="desk-week">{cal.weekLine}</span>
-        <div className="desk-office">{w.briefingLine}</div>
-        <div className="desk-tag">
-          {urgentOpen > 0 ? `${urgentOpen} URGENT` : 'TRIAGE DONE'} · {docs.length} DOCUMENTS
+      <header className="desk-head">
+        <div className="dh-left">
+          <span className="dh-wordmark">IN-TRAY · WEEK 41</span>
+          <span className="dh-seat">{cal.weekLine}</span>
         </div>
-        <div className="desk-term">{pack.scenario.term.line}</div>
-        <div className="desk-hours" aria-label={`Desk Hours: ${wholeLeft} of ${DESK_HOURS_TOTAL} left`}>
-          <span className="dh-label">DESK HOURS</span>
-          <span className="dh-ticks">
-            {Array.from({ length: DESK_HOURS_TOTAL }, (_, i) => (
-              <span key={i} className={`dh-tick${i < wholeLeft ? '' : ' spent'}`} />
-            ))}
-          </span>
-          <span className="dh-count">{wholeLeft}{frac} / {DESK_HOURS_TOTAL} LEFT — USE OR LOSE</span>
+        <div className="dh-right">
+          <span className="dh-hours">DESK HOURS</span>
+          <span className="dh-hours-val">{wholeLeft} / 14</span>
+          <span className="dh-hours-frac">{frac}</span>
+          <button className="dh-clock" aria-label="Desk clock">
+            <IcClock width={16} height={16} />
+          </button>
         </div>
-        <div className="desk-deadlines">{cal.deadlineLine}</div>
+      </header>
+      <div className="desk-body">
+        <aside className="db-left" aria-label="Files list">
+          <div className="db-left-head">FILES</div>
+          <div className="db-left-list">
+            <button className="db-left-card" onClick={() => onOpen(pack.handover.id)}>
+              <span className="db-left-title">{pack.handover.title}</span>
+              <span className="db-left-sub">FROM THE OUTGOING AIDE</span>
+            </button>
+            {docs.map(d => {
+              const linked = pack.decisions.filter(x => x.docId === d.id)
+              const decided = linked.some(x => decStatus(x, p, pack).done)
+              const pending = linked.length > 0 && !decided
+              return (
+                <button key={d.id} className="db-left-card" onClick={() => onOpen(d.id)}>
+                  <span className="db-left-title">{d.title}</span>
+                  <span className={"db-left-meta" + (pending ? ' urgent' : '') + (decided ? ' done' : '')}>
+                    {pending ? 'TODAY · URGENT' : decided ? 'DECIDED' : 'NEEDS YOUR HAND'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </aside>
+        <section className="db-right" aria-label="Document viewer">
+          <div className="db-right-toolbar">
+            <button className="db-right-back" onClick={() => onOpen(pack.handover.id)}>CLOSE</button>
+            <button className="db-right-back" onClick={() => onOpen(pack.handover.id)}>MARK DONE</button>
+          </div>
+          <div className="db-right-paper">
+            <PaperDocument doc={pack.handover} onBack={() => onOpen(pack.handover.id)} />
+          </div>
+        </section>
       </div>
-      <div className="tray">
-        <div className="tray-lip" />
-        <div className="tray-list">
-          {docs.map(d => {
-            const linked = pack.decisions.filter(x => x.docId === d.id)
-            const decided = linked.some(x => decStatus(x, p, pack).done)
-            const pending = linked.length > 0 && !decided
-            return (
-              <TrayCard key={d.id} doc={d} mark={p.marks[d.id]}
-                decided={decided} pending={pending}
-                weathered={weathered.includes(d.id)}
-                onOpen={() => onOpen(d.id)} />
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="desk-close">
-        <button
-          className={`close-strip${p.weekFiled ? ' done' : ''}`}
-          onClick={onCloseWeek}
-          disabled={p.weekFiled || ticking}
-          aria-label={p.weekFiled ? 'Week filed' : 'Close the week and autosave'}
-        >
-          {p.weekFiled
-            ? cal.filedLine
-            : 'CLOSE THE WEEK — THE DESK TIDIES ITSELF, THE LOG IS WRITTEN'}
+      <div className="desk-side">
+        <button className="ds-btn ds-btn-budget" onClick={() => onOpen(pack.handover.id)}>
+          <IcBudget width={16} height={16} />
+          <span>BUDGET</span>
         </button>
-        <div className="close-hint">Autosave runs on commit, never before (§3.7)</div>
+        <button className="ds-btn ds-btn-allies" onClick={() => onOpen(pack.handover.id)}>
+          <IcAllies width={16} height={16} />
+          <span>ALLIES</span>
+        </button>
+        <button className="ds-btn ds-btn-files" onClick={() => onOpen(pack.handover.id)}>
+          <IcFiles width={16} height={16} />
+          <span>FILES</span>
+        </button>
       </div>
+      <footer className="desk-foot">
+        <button className="df-btn df-redpen" onClick={() => onOpen(pack.handover.id)}>
+          <IcPen width={16} height={16} />
+          <span>RED PEN</span>
+        </button>
+        <button className="df-btn df-decide" onClick={() => onOpen(pack.handover.id)}>
+          <IcDecisions width={16} height={16} />
+          <span>DECIDE</span>
+        </button>
+        <button className="df-btn df-file" onClick={() => onOpen(pack.handover.id)}>
+          <IcFiles width={16} height={16} />
+          <span>FILE</span>
+        </button>
+        <button className="df-close" onClick={onCloseWeek} disabled={p.weekFiled || ticking}>
+          CLOSE THE WEEK
+        </button>
+      </footer>
     </>
   )
 }
@@ -860,6 +890,11 @@ export default function App() {
   const openDoc = (id: string) => setOpenId(id)
   const doc = pack && openId ? findDoc(pack, openId) : undefined
 
+  const openTab = (tab: 'files' | 'briefings' | 'allies' | 'budget') => {
+    if (tab === 'briefings') setTab('briefings')
+    else setTab(tab) // files | allies | budget
+  }
+
   const setMark = (id: string, m: DocMarkState) =>
     setPersist(p => ({ ...p, marks: { ...p.marks, [id]: m } }))
 
@@ -877,7 +912,7 @@ export default function App() {
   }
 
   const reset = () => {
-    setPersist({ marks: {}, decisions: {}, weathered: [] })
+    setPersist({ marks: {}, decisions: {}, weekFiled: false, weathered: [] })
     try { localStorage.removeItem(STORE_KEY) } catch { /* ignore */ }
     showToast('WEEK CLEARED — THE DESK IS EMPTY AGAIN')
   }
@@ -1235,9 +1270,15 @@ export default function App() {
       ) : !pack ? null : (
         <main className="app-main" key={tab}>
           <div className="zoom-layer">
-            {documentView || (expanded && tab === 'briefings'
-              ? <div className="surface-note">THE TRAY IS ON THE LEFT.<span>Pick a file; the tabs swap this surface.</span></div>
-              : screens[tab])}
+            {documentView || (
+        <>
+          {tab === 'files' && <FilesScreen p={persist} pack={pack} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />}
+          {tab === 'briefings' && <DeskScreen p={persist} pack={pack} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />}
+          {tab === 'allies' && <AlliesScreen pack={pack} onOpen={openDoc} />}
+          {tab === 'decisions' && <DecisionsScreen p={persist} pack={pack} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} />}
+          {tab === 'budget' && <BudgetScreen pack={pack} />}
+        </>
+      )}
           </div>
         </main>
       )}
