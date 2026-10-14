@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { createInitialSimState, createSectorControl } from './sim-core'
+import { createSectorControl } from './sim-core'
 
 describe('triple-shock: oil crash + flood + ASUU', () => {
   it('Governor loses approval despite no police control after triple shock', () => {
     const sectorControl = createSectorControl()
-    const state = createInitialSimState(sectorControl, 50)
 
     // The Governor has cannotDirectCp: true (no police control)
     // Verify the sector control properties
@@ -27,7 +26,6 @@ describe('triple-shock: oil crash + flood + ASUU', () => {
 
   it('verifies governor approval drop is independent of police control', () => {
     const sectorControl = createSectorControl()
-    const state = createInitialSimState(sectorControl, 75)
 
     // Verify Governor cannot directly control police
     expect(sectorControl.governor.cannotDirectCp).toBe(true)
