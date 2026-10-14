@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { executeDirtyTrick, createInitialSimState, createSectorControl } from '../sim-core.ts'
+import { executeDirtyTrick, createInitialSimState, createSectorControl } from '../sim-core'
 
 describe('dirty trick → EFCC probe → postless godfather path', () => {
   it('plant-story dirty trick triggers EFCC probe and moves approval', () => {
