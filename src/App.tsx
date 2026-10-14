@@ -577,7 +577,11 @@ function LgaStep({ state, onLga, onBack }: {
   const shown = (lgas ?? []).filter(l => l.name.toLowerCase().includes(needle))
   return (
     <div className="ob-step">
-      <div className="ob-sub">Which local government? {state.name} council — the third tier, funded through the state joint account.</div>
+      <div className="ob-sub">
+        {state.tier === 'fct'
+          ? 'Which area council? The FCT runs six — the third tier under the territory.'
+          : `Which local government? ${state.name} council — the third tier, funded through the state joint account.`}
+      </div>
       <div className="ob-field">
         <label className="ob-label">FILTER</label>
         <input
@@ -594,7 +598,7 @@ function LgaStep({ state, onLga, onBack }: {
           {shown.map(l => (
             <button key={l.id} className="ob-state" onClick={() => onLga(l)}>
               <div className="ob-state-name">{l.name}</div>
-              <div className="ob-state-meta">{state.name} · LGA</div>
+              <div className="ob-state-meta">{state.name} · {state.tier === 'fct' ? 'AREA COUNCIL' : 'LGA'}</div>
             </button>
           ))}
         </div>
@@ -604,6 +608,16 @@ function LgaStep({ state, onLga, onBack }: {
       </div>
     </div>
   )
+}
+
+/* ---------- the jurisdiction line for the identity / prologue steps ----------
+   A nationwide post stands for the Federation, an appointed Minister runs the FCT itself,
+   a Governor runs a state, and a Chairman runs a council within it. */
+function postLineFor(office: { post: string; tier: string }, stateName: string): string {
+  const post = office.post.toUpperCase()
+  if (office.tier === 'federal') return `${post} OF THE FEDERATION`
+  if (office.tier === 'fct') return post
+  return `${post} OF ${stateName.toUpperCase()}`
 }
 
 /* ---------- blank-first identity form ----------
@@ -627,9 +641,7 @@ function IdentityStep({ stateName, office, name, age, pronouns, locale, bio, alt
   onDone: () => void
   onBack: () => void
 }) {
-  const postLine = office.tier === 'fct'
-    ? `${office.post.toUpperCase()} · ${stateName.toUpperCase()}`
-    : `${office.post.toUpperCase()} OF ${stateName.toUpperCase()}`
+  const postLine = postLineFor(office, stateName)
   return (
     <div className="ob-step">
       <div className="ob-sub">You picked {postLine}. Now choose who you are — this is your record, typed by you, not pulled from a file.</div>
@@ -670,10 +682,11 @@ function IdentityStep({ stateName, office, name, age, pronouns, locale, bio, alt
    The player picks their own party before the prologue now. The godfather / grassroots /
    technocrat step still shapes axes and patronage, but the party the desk travels under
    is the player's choice, not an NPC's. */
-function PartyStep({ parties, partyCode, onParty, onBack }: {
+function PartyStep({ parties, partyCode, onParty, onDone, onBack }: {
   parties: import('./profile').FederationParty[]
   partyCode: string | null
   onParty: (code: string) => void
+  onDone: () => void
   onBack: () => void
 }) {
   return (
@@ -688,6 +701,7 @@ function PartyStep({ parties, partyCode, onParty, onBack }: {
         ))}
       </div>
       <div className="ob-foot">
+        <button className="ob-done" disabled={!partyCode} onClick={() => { onDone() }}>continue to the prologue</button>
         <button className="ob-back" onClick={onBack}>back</button>
       </div>
     </div>
@@ -709,9 +723,7 @@ function PrologueStep({ origin, bringer, scar, name, stateName, office, onOrigin
 }) {
   /* The FCT has no governorship (s.299): its post is the appointed ministership, and the
      territory is not named after the office the way a state is. */
-  const postLine = office.tier === 'fct'
-    ? `${office.post.toUpperCase()} · ${stateName.toUpperCase()}`
-    : `${office.post.toUpperCase()} OF ${stateName.toUpperCase()}`
+  const postLine = postLineFor(office, stateName)
   return (
     <div className="ob-step">
       <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
@@ -1343,6 +1355,12 @@ export default function App() {
     }
   }
 
+  /* The onboarding shell title tracks the step: a new file, an identity, or the record. */
+  const obTitle = !onboarding ? 'NEW FILE — CHOOSE YOUR POST'
+    : onboarding.phase === 'profile-sheet' ? 'YOUR RECORD — SIGN IT OR REVISE IT'
+    : onboarding.phase === 'pick-post' ? 'NEW FILE — CHOOSE YOUR POST'
+    : 'NEW FILE — WHO ARE YOU'
+
   const surface = (
     <>
       {/* Supabase auth sheet: sign-in / sign-up before first-open onboarding, when configured. */}
@@ -1395,7 +1413,7 @@ export default function App() {
         <main className="app-main" key="onboarding">
           <div className="zoom-layer">
             <div className="onboarding-shell">
-              <h1 className="ob-title">NEW FILE — CHOOSE YOUR POST</h1>
+              <h1 className="ob-title">{obTitle}</h1>
               {onboarding.error ? (
                 <div className="ob-error">{onboarding.error}</div>
               ) : onboarding.phase === 'pick-post' ? (
@@ -1405,8 +1423,9 @@ export default function App() {
                     if (!o) return null
                     const route = postRoute(office)
                     if (route.kind === 'direct') {
-                      // appointed/nationwide posts need no jurisdiction step (FCT seat = Abuja)
-                      return { ...o, phase: 'prologue', officeId: office.id, stateCode: route.stateCode, lgaName: null }
+                      // appointed/nationwide posts need no jurisdiction step (FCT seat = Abuja) —
+                      // but the player still names themselves and picks a party before the prologue.
+                      return { ...o, phase: 'pick-identity', officeId: office.id, stateCode: route.stateCode, lgaName: null }
                     }
                     return { ...o, phase: 'pick-state', officeId: office.id, stateCode: null, lgaName: null }
                   })}
@@ -1420,7 +1439,7 @@ export default function App() {
                   )}
                   stateCode={onboarding.stateCode}
                   sub={onboarding.officeId === 'local/chairman'
-                    ? 'Which state is your council in? The 774 LGAs sit under the states and the FCT.'
+                    ? 'Which state is your council in? The 774 LGAs sit under the 36 states; the FCT runs six area councils of its own.'
                     : onboarding.officeId === 'state/governor'
                       ? 'Pick the state you will govern. The 36 states — the FCT has no governorship (s.299).'
                       : undefined}
@@ -1431,14 +1450,14 @@ export default function App() {
                     if (route?.kind === 'state-then-lga') {
                       return { ...o, phase: 'pick-lga', stateCode }
                     }
-                    return { ...o, phase: 'prologue', stateCode }
+                    return { ...o, phase: 'pick-identity', stateCode }
                   })}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', stateCode:null, lgaName:null} : null))}
                 />
               ) : onboarding.phase === 'pick-lga' ? (
                 <LgaStep
                   state={onboarding.states.find(s => s.code === onboarding.stateCode) ?? DELTA_TUTORIAL_STATE}
-                  onLga={lga => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode: lga.stateCode, lgaName: lga.name} : null))}
+                  onLga={lga => setOnboarding(o => (o ? {...o, phase:'pick-identity', stateCode: lga.stateCode, lgaName: lga.name} : null))}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', lgaName:null} : null))}
                 />
               ) : onboarding.phase === 'pick-identity' ? (
@@ -1458,13 +1477,21 @@ export default function App() {
                   setBio={v => setOnboarding(o => (o ? {...o, bio: v} : null))}
                   setAltName={v => setOnboarding(o => (o ? {...o, altName: v} : null))}
                   onDone={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'prologue', pronouns:'', locale:'', bio:'', altName:''} : null))}
+                  onBack={() => setOnboarding(o => {
+                    if (!o) return null
+                    const office = o.offices.find(x => x.id === o.officeId)
+                    const route = office ? postRoute(office) : null
+                    if (route?.kind === 'state') return { ...o, phase: 'pick-state' as const }
+                    if (route?.kind === 'state-then-lga') return { ...o, phase: 'pick-lga' as const }
+                    return { ...o, phase: 'pick-post' as const, officeId: null, stateCode: null, lgaName: null }
+                  })}
                 />
               ) : onboarding.phase === 'pick-party' ? (
                 <PartyStep
                   parties={onboarding.parties}
                   partyCode={onboarding.partyCode}
                   onParty={code => setOnboarding(o => (o ? {...o, partyCode: code} : null))}
+                  onDone={() => setOnboarding(o => (o ? {...o, phase:'prologue'} : null))}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
                 />
               ) : onboarding.phase === 'prologue' ? (
@@ -1479,7 +1506,7 @@ export default function App() {
                   onBringer={id => setOnboarding(o => (o ? {...o, bringer: id} : null))}
                   onScar={id => setOnboarding(o => (o ? {...o, scar: id} : null))}
                   onDone={() => setOnboarding(o => (o ? nextSheetState(o as import('./profile').OnboardingState) : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
                 />
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
                 <ProfileSheetStep

@@ -33,3 +33,23 @@ describe('Supabase env wiring', () => {
     expect(mod.publicClient()).toBeNull()
   })
 })
+
+describe('offline council register', () => {
+  it('serves real councils for Delta and the FCT when Supabase is absent', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+    const mod = await freshModule()
+
+    const delta = await mod.listLgas('DT')
+    expect(delta.length).toBeGreaterThan(0)
+    expect(delta.every(l => l.stateCode === 'DT')).toBe(true)
+    expect(delta.map(l => l.name)).toContain('Oshimili South')
+
+    // The FCT's third tier is its area councils — the Chairman path must not dead-end there.
+    const fct = await mod.listLgas('FC')
+    expect(fct.map(l => l.name)).toContain('Abuja Municipal Area Council')
+
+    // A state with no local fallback is empty, not a crash.
+    expect(await mod.listLgas('KN')).toEqual([])
+  })
+})

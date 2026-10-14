@@ -50,10 +50,11 @@ describe('first-open boot does not serve the NPC as the player record', () => {
     expect(on.bio).toBe('')
     expect(on.altName).toBe('')
     expect(on.partyCode).toBeNull()
-    // The Delta tutorial state/office are still reference data the picker can use;
-    // they are not the player's chosen identity.
-    expect(on.states).toHaveLength(1)
-    expect(on.states[0].code).toBe('DT')
+    // The offline reference carries Delta plus the FCT — the FCT is the President's seat
+    // and the territory the Minister administers, so nationwide/FCT posts resolve without
+    // a migrated federation_states row. These are reference data, not the player's identity.
+    expect(on.states.map(s => s.code)).toEqual(['DT', 'FC'])
+    expect(on.states.find(s => s.code === 'FC')!.name).toBe('Federal Capital Territory')
     expect(on.offices).toContainEqual(DELTA_TUTORIAL_OFFICE)
   })
 
@@ -213,6 +214,72 @@ describe('first-open boot does not serve the NPC as the player record', () => {
     // The sheet must say Adaebi Okafor, not M. A. Bamgboye.
     expect(sheet!.name).not.toBe('M. A. Bamgboye')
     expect(sheet!.age).not.toBe('52')
+  })
+
+  it('resolves the President against the offline FCT seat, never a missing state', () => {
+    const base = fallbackState()
+    const president = {
+      ...base,
+      phase: 'prologue' as const,
+      stateCode: 'FC',
+      officeId: 'federal/president',
+      origin: 'civil-service' as const,
+      bringer: 'grassroots' as const,
+      scar: 'none' as const,
+      name: 'Adaebi Okafor',
+      age: '41',
+      partyCode: 'APC',
+      lgaName: null,
+    } as any
+    const out = nextSheetState(president)
+    expect(out.error).toBeNull()
+    expect(out.sheet).toBeTruthy()
+    expect(out.sheet!.office).toBe('FEDERAL GOVERNMENT')
+    expect(out.sheet!.stateLabel).toBe('SEAT')
+    expect(out.sheet!.state).toBe('Federal Capital Territory')
+    expect(out.sheet!.capital).toBe('Abuja')
+  })
+
+  it('resolves the appointed FCT Minister against the territory', () => {
+    const base = fallbackState()
+    const minister = {
+      ...base,
+      phase: 'prologue' as const,
+      stateCode: 'FC',
+      officeId: 'fct/minister',
+      origin: 'business' as const,
+      bringer: 'technocrat' as const,
+      scar: 'contract-query' as const,
+      name: 'Adaebi Okafor',
+      age: '41',
+      partyCode: 'APC',
+      lgaName: null,
+    } as any
+    const out = nextSheetState(minister)
+    expect(out.error).toBeNull()
+    expect(out.sheet!.office).toBe('FCT ADMINISTRATION')
+    expect(out.sheet!.route).toBe('APPOINTED')
+  })
+
+  it('resolves a Chairman who picks an FCT area council', () => {
+    const base = fallbackState()
+    const chairman = {
+      ...base,
+      phase: 'prologue' as const,
+      stateCode: 'FC',
+      officeId: 'local/chairman',
+      origin: 'party-youth' as const,
+      bringer: 'grassroots' as const,
+      scar: 'none' as const,
+      name: 'Adaebi Okafor',
+      age: '41',
+      partyCode: 'APC',
+      lgaName: 'Abuja Municipal Area Council',
+    } as any
+    const out = nextSheetState(chairman)
+    expect(out.error).toBeNull()
+    expect(out.sheet!.office).toBe('LOCAL GOVERNMENT')
+    expect(out.sheet!.lga).toBe('Abuja Municipal Area Council')
   })
 
   it('a player with no name still does not render the NPC name', () => {

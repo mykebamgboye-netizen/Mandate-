@@ -18,6 +18,11 @@ import {
   DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE, DELTA_TUTORIAL_SCENARIO,
   deltaTutorialProfile, FCT_MINISTER_OFFICE,
 } from './delta-tutorial'
+import { PARTIES } from './prologue'
+
+// The canonical party catalogue as federation_parties rows. Used as the offline fallback so
+// the first-open party picker is a real choice rather than the single ruling-party row.
+const FALLBACK_PARTIES: FederationParty[] = PARTIES.map(p => ({ code: p.id, name: p.name, note: p.note }))
 
 // ---- env access: returns undefined (not an error) when the var is absent. ----
 //
@@ -126,10 +131,34 @@ export async function getStateByCode(code: string): Promise<FederationState | nu
   }
 }
 
+// Offline council register: a small, real sampling of the third-tier councils so the
+// Chairman path can be completed when no database is configured. Supabase stays the source
+// of truth for the full 774; this is the same graceful-fallback pattern as the state list.
+// The FCT's third tier is its Area Councils (Abuja Municipal, Gwagwalada, …) — six of them,
+// which is what a Chairman for the FCT would actually run.
+const LOCAL_LGAS: Record<string, FederationLga[]> = {
+  DT: [
+    { id: 'DT/oshimili-south', stateCode: 'DT', name: 'Oshimili South', fiscalNote: 'capital territory — Asaba' },
+    { id: 'DT/warri-south', stateCode: 'DT', name: 'Warri South', fiscalNote: 'oil-servicing corridor' },
+    { id: 'DT/ughelli-north', stateCode: 'DT', name: 'Ughelli North', fiscalNote: 'uplands — gas belt' },
+    { id: 'DT/isoko-south', stateCode: 'DT', name: 'Isoko South', fiscalNote: 'oil-bearing, derivation-adjacent' },
+    { id: 'DT/ndokwa-east', stateCode: 'DT', name: 'Ndokwa East', fiscalNote: 'riverine — hard to reach' },
+    { id: 'DT/sapele', stateCode: 'DT', name: 'Sapele', fiscalNote: 'port town — timber and gas' },
+  ],
+  FC: [
+    { id: 'FC/amac', stateCode: 'FC', name: 'Abuja Municipal Area Council', fiscalNote: 'capital core — the seat' },
+    { id: 'FC/gwagwalada', stateCode: 'FC', name: 'Gwagwalada', fiscalNote: 'university corridor' },
+    { id: 'FC/bwari', stateCode: 'FC', name: 'Bwari', fiscalNote: 'north gate — dam and barracks' },
+    { id: 'FC/kuje', stateCode: 'FC', name: 'Kuje', fiscalNote: 'south-west — markets' },
+    { id: 'FC/kwali', stateCode: 'FC', name: 'Kwali', fiscalNote: 'rural fringe' },
+    { id: 'FC/abaji', stateCode: 'FC', name: 'Abaji', fiscalNote: 'south-west — border trade' },
+  ],
+}
+
 export async function listLgas(stateCode: string): Promise<FederationLga[]> {
   const client = publicClient()
   if (!client) {
-    return []
+    return LOCAL_LGAS[stateCode] ?? []
   }
   const { data, error } = await client
     .from('federation_lgas')
@@ -148,7 +177,7 @@ export async function listLgas(stateCode: string): Promise<FederationLga[]> {
 export async function listParties(): Promise<FederationParty[]> {
   const client = publicClient()
   if (!client) {
-    return [{ code: 'APC', name: 'All Progressives Congress', note: 'local fallback' }]
+    return FALLBACK_PARTIES
   }
   const { data, error } = await client
     .from('federation_parties')
@@ -541,11 +570,25 @@ export async function findScenarioByScenarioId(scenarioId: string): Promise<Scen
 
 // ---- Local fallback surface for the onboarding boot. ----
 
-/** When Supabase is absent, the onboarding shell falls back to the Delta tutorial scenario. */
+/** The Federal Capital Territory as a reference entry. It is the President's seat and the
+    territory the appointed Minister administers, so the offline boot needs it even though
+    federation_states only carries it once the DB is migrated. */
+export const FCT_STATE: FederationState = {
+  code: 'FC',
+  name: 'Federal Capital Territory',
+  capital: 'Abuja',
+  tier: 'fct',
+  zone: null,
+  senatorialDistricts: null,
+}
+
+/** When Supabase is absent, the onboarding shell falls back to the Delta tutorial scenario.
+    The FCT is included as a real state-like entry so nationwide/FCT posts and any FCT
+    selection at the state step resolve without requiring a migrated federation_states row. */
 export const defaultFederationReference = {
-  states: [DELTA_TUTORIAL_STATE] as FederationState[],
+  states: [DELTA_TUTORIAL_STATE, FCT_STATE] as FederationState[],
   offices: [DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE] as FederationOffice[],
-  parties: [{ code: 'APC', name: 'All Progressives Congress', note: 'local fallback' }] as FederationParty[],
+  parties: FALLBACK_PARTIES,
 }
 
 export function defaultScenarioStartState(): ScenarioStartState {
