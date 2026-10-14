@@ -14,6 +14,10 @@ import {
   type GazetteDoc, type FaacDoc, type WhipDoc, type TableDoc, type SecurityDoc, type LetterDoc,
   type DossierDoc, type TribunalDoc, type ClippingDoc, type LeafletDoc, type SectorDoc, type TellDoc,
 } from '../content'
+import { postSectorBrief } from '../sectors'
+import { revenueBrief, verticalFormulaLine } from '../revenue'
+import { pressureBrief } from '../pressure'
+import { careerBrief } from '../career'
 import { PAYROLL_ANCHOR_STAFF, payrollStaff } from './money'
 import { PLACES } from './places'
 import { recordId } from './derive'
@@ -780,10 +784,37 @@ export function buildWeek(s: Scenario): Pack {
       ], 'circled on the ticket sheet — ask what he wants', ['compiled from 11 intel actions — two sources paid', 'last refreshed 05 Oct']),
   ]
 
+  /* ---------- 15. the desk brief: what the post holds, and what it may not touch ---------- */
+  const brief: NoteDoc = {
+    id: 'desk-brief',
+    kind: 'note',
+    title: 'Desk Brief — what this office holds',
+    trayLine: `Levers, blame, money and the ladder — ${s.post}`,
+    stock: 'form', clip: 'none', stain: 'ring', mark: 'fresh',
+    date: cal.shortDate,
+    from: 'REFERENCE FILE',
+    re: 'WHAT THIS OFFICE HOLDS',
+    lines: [
+      `${w.officeTitle} — ${s.seat}. ${s.elected ? 'Elected: your mandate is a poll, and it can be petitioned.' : 'Appointed: your mandate is an instrument, and it can be revoked.'}`,
+      ...postSectorBrief(s.input.officeId),
+      ...revenueBrief(s.input.officeId),
+      verticalFormulaLine(),
+      ...pressureBrief(),
+      ...careerBrief(s.input.officeId),
+    ],
+    authority: 'Second Schedule · Fourth Schedule · s.162',
+    authorityText: 'The Exclusive and Concurrent Legislative Lists and the Fourth Schedule divide the twelve sectors between the three tiers of government; s.162 divides the money. This brief is only a map of which of those lines your post can actually move — the blame does not follow the map.',
+    recordId: recordId(s, 'BRIEF'),
+    audit: [
+      `${cal.shortDate} · 07:05 — assembled from the service record of ${s.jurisdictionShort}`,
+      `${cal.shortDate} · 07:06 — placed in the in-tray · visibility: private`,
+    ],
+  }
+
   return {
     scenario: s,
     docs, assets, decisions, allies, handover,
-    extras: [sector, tell],
+    extras: [sector, tell, brief],
     award,
     roadVariation: roadVar,
   }

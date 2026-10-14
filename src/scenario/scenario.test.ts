@@ -280,7 +280,7 @@ describe('the pack is whole at every tier', () => {
       expect(pack.decisions).toHaveLength(4)
       expect(pack.allies).toHaveLength(4)
       expect(pack.assets).toHaveLength(4)
-      expect(pack.extras).toHaveLength(2)
+      expect(pack.extras).toHaveLength(3)
       const ids = [...pack.docs, ...pack.extras, ...pack.assets].map(d => d.id)
       expect(new Set(ids).size).toBe(ids.length)
       // every decision points at a file that is actually on the desk
@@ -288,6 +288,35 @@ describe('the pack is whole at every tier', () => {
       expect(pack.award).toBeGreaterThan(0)
       expect(pack.roadVariation).toBeGreaterThan(0)
     }
+  })
+
+  it('hands each seat the brief on its own levers and its own money', () => {
+    const briefFor = (over: Partial<ScenarioInput>) => {
+      const pack = packFor(input(over))
+      const brief = pack.extras.find(d => d.id === 'desk-brief')
+      expect(brief, over.officeId).toBeTruthy()
+      return JSON.stringify(brief)
+    }
+
+    const federal = briefFor({ officeId: 'federal/president', tier: 'federal', post: 'President', stateCode: null, lgaName: null })
+    expect(federal).toContain('SHARE — 52.68% of the federation account')
+    expect(federal).toContain('s.143')
+    expect(federal).toContain('YOU HOLD — Security')
+
+    const governor = briefFor({})
+    expect(governor).toContain('CANNOT TOUCH')
+    expect(governor).toContain('the police — the CP answers to the IG, not to you')
+    expect(governor).toContain('NEXT RUNG — President')
+    expect(governor).not.toContain('52.68% of the federation account')
+
+    const council = briefFor({ officeId: 'local/chairman', tier: 'local', post: 'Council Chairman', lgaName: 'Wudil' })
+    expect(council).toContain('SHARE — 20.6% of the federation account')
+    expect(council).toContain('THE WAYS OFF')
+    expect(council).toContain('NEXT RUNG — State Assembly Member')
+
+    const fct = briefFor({ officeId: 'fct/minister', tier: 'fct', post: 'FCT Minister', stateCode: 'FC', lgaName: null })
+    expect(fct).toContain('1% of the federal side (earmark)')
+    expect(fct).toContain('President can sack you')
   })
 
   it('localizes the file titles to the seat', () => {
