@@ -58,6 +58,8 @@ const GHOST_LEDGER: Record<string, string> = {
 
 /* ---------- signature pad (stroke vector, % coordinates) ---------- */
 function SigPad({ onDone }: { onDone: (s: Signature) => void }) {
+  /* the placeholder is the player's own name, not a fixed one */
+  const signAs = useGame().scenario.shortName
   const [strokes, setStrokes] = useState<Pt[][]>([])
   const [mode, setMode] = useState<'draw' | 'typed'>('draw')
   const [typed, setTyped] = useState('')
@@ -131,7 +133,7 @@ function SigPad({ onDone }: { onDone: (s: Signature) => void }) {
       ) : (
         <div className="sig-pad" style={{ minHeight: 76 }}>
           <input
-            autoFocus placeholder="M. Bamgboye" value={typed}
+            autoFocus placeholder={signAs} value={typed}
             onChange={e => setTyped(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && typed.trim().length > 1) onDone({ mode: 'typed', text: typed.trim() }) }}
             style={{
@@ -162,7 +164,7 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
   const isSector = doc.kind === 'sector'
   const stamped = mark.stamps.length > 0
   const approved = mark.stamps.some(s => s.label === 'APPROVED')
-  const { literacy } = useGame()
+  const { literacy, scenario } = useGame()
 
   /* redraw splatter whenever stamps change / flip returns / resize */
   useEffect(() => {
@@ -230,19 +232,20 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
     }
   }
 
+  const auditDate = scenario.calendar.shortDate
   const audit = [
     ...doc.audit,
-    ...mark.annotations.map(() => '08 Oct 2026 · you — annotation applied · visibility: private'),
-    ...mark.stamps.map(s => `08 Oct 2026 · you — stamped ${s.label} · pressure ${Math.round(s.pressure * 100)}%`),
+    ...mark.annotations.map(() => `${auditDate} · you — annotation applied · visibility: private`),
+    ...mark.stamps.map(s => `${auditDate} · you — stamped ${s.label} · pressure ${Math.round(s.pressure * 100)}%`),
     ...(mark.tellResult === 'hit'
-      ? ['05 Oct 2026 · you — Receipt built: three bids, one phone · strength 35']
+      ? [`${auditDate} · you — Receipt built: three bids, one phone · strength 35`]
       : mark.tellResult === 'miss'
-      ? ['05 Oct 2026 · you — wrong line marked · 2 hours burned, an innocent explained twice']
+      ? [`${auditDate} · you — wrong line marked · 2 hours burned, an innocent explained twice`]
       : []),
     ...(mark.signed
       ? [mark.signed.mode === 'draw'
-          ? `08 Oct 2026 · you — signature captured · stroke vector (${mark.signed.strokes.length} strokes)`
-          : `08 Oct 2026 · you — typed signature accepted (alternate method)`]
+          ? `${auditDate} · you — signature captured · stroke vector (${mark.signed.strokes.length} strokes)`
+          : `${auditDate} · you — typed signature accepted (alternate method)`]
       : []),
   ]
 
@@ -321,7 +324,7 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
                   {mark.signed && (
                     <>
                       <div className="doc-small" style={{ marginTop: 6 }}>
-                        Signed by: {doc.kind === 'gazette' ? doc.signName : 'M. Bamgboye'}<br />
+                        Signed by: {doc.kind === 'gazette' ? doc.signName : scenario.shortName}<br />
                         {doc.kind === 'gazette' ? doc.role : 'Authorized Signatory'}
                       </div>
                       <div className="gaz-footer valid">{doc.footer}</div>
@@ -333,7 +336,7 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
                       <button onClick={() => { onMark({ ...mark, signed: undefined }); onToast('SIGNATURE CLEARED — SIGN AGAIN') }}>
                         CLEAR &amp; REDRAW
                       </button>
-                      <button onClick={() => { onMark({ ...mark, signed: { mode: 'typed', text: 'M. Bamgboye' } }); onToast('ALTERNATE SIGNATURE ACCEPTED') }}>
+                      <button onClick={() => { onMark({ ...mark, signed: { mode: 'typed', text: scenario.shortName } }); onToast('ALTERNATE SIGNATURE ACCEPTED') }}>
                         USE TYPED INSTEAD
                       </button>
                     </div>
@@ -343,7 +346,7 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
 
               {mark.annotations.map((a, i) => (
                 <div className="annotation" key={i}>
-                  {a}<span className="ann-meta">8 OCT 2026 · YOU · PRIVATE</span>
+                  {a}<span className="ann-meta">{scenario.calendar.shortDate.toUpperCase()} · YOU · PRIVATE</span>
                 </div>
               ))}
 
@@ -381,7 +384,7 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
                   }}
                 >
                   {st.label}
-                  <span className="sub">8 OCT 2026 · GOVT OF DELTA</span>
+                  <span className="sub">{scenario.calendar.stampDate}</span>
                 </div>
               ))}
             </article>

@@ -183,7 +183,8 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
       // party label follows the player's own first-open choice first; otherwise fall back
       // to the live catalogue's APC row (or null), never to the NPC default.
       s.partyCode ? s.parties.find(p => p.code === s.partyCode)?.name ?? null : party?.name ?? null,
-      s.name || 'M. A. Bamgboye',
+      // the wizard requires a name before the sheet; never fall back to somebody else's
+      s.name.trim(),
       s.age || null,
       s.lgaName,
     ),

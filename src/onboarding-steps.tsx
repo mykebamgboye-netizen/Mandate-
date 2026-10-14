@@ -94,7 +94,8 @@ function ObPage({ step, total, caps, title, sub, onBack, children, ctaLabel, cta
   caps?: boolean
   title: ReactNode
   sub?: ReactNode
-  onBack: () => void
+  /** absent when there is nothing behind this step — a new file has no desk to fall back to */
+  onBack?: () => void
   children: ReactNode
   ctaLabel: string
   ctaDisabled?: boolean
@@ -105,7 +106,7 @@ function ObPage({ step, total, caps, title, sub, onBack, children, ctaLabel, cta
   return (
     <div className="ob-page">
       <div className="ob-top">
-        <button className="ob-backbtn" onClick={onBack} aria-label="back"><IcBack /></button>
+        {onBack && <button className="ob-backbtn" onClick={onBack} aria-label="back"><IcBack /></button>}
       </div>
       <div className="ob-head">
         <h1 className={`ob-title${caps ? ' caps' : ''}`}>{title}</h1>
@@ -146,7 +147,8 @@ export function PostStep({ offices, officeId, onPick, step, total, onBack, onCon
   onPick: (office: FederationOffice) => void
   step: number
   total: number
-  onBack: () => void
+  /** absent until a record exists to go back to */
+  onBack?: () => void
   onContinue: () => void
 }) {
   const ordered = [...offices].sort(
@@ -343,7 +345,7 @@ export function WhoStep({ office, stateName, name, age, pronouns, locale, altNam
       <div className="ob-fields">
         <label className="ob-field">
           <span className="ob-label">Name</span>
-          <input className="ob-input" value={name} onChange={e => onField('name', e.target.value)} placeholder="e.g. M. A. Bamgboye" />
+          <input className="ob-input" value={name} onChange={e => onField('name', e.target.value)} placeholder="your full name" />
         </label>
         <div className="ob-field-row">
           <label className="ob-field">

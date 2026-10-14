@@ -131,29 +131,62 @@ export async function getStateByCode(code: string): Promise<FederationState | nu
   }
 }
 
-// Offline council register: a small, real sampling of the third-tier councils so the
-// Chairman path can be completed when no database is configured. Supabase stays the source
-// of truth for the full 774; this is the same graceful-fallback pattern as the state list.
-// The FCT's third tier is its Area Councils (Abuja Municipal, Gwagwalada, …) — six of them,
-// which is what a Chairman for the FCT would actually run.
-const LOCAL_LGAS: Record<string, FederationLga[]> = {
-  DT: [
-    { id: 'DT/oshimili-south', stateCode: 'DT', name: 'Oshimili South', fiscalNote: 'capital territory — Asaba' },
-    { id: 'DT/warri-south', stateCode: 'DT', name: 'Warri South', fiscalNote: 'oil-servicing corridor' },
-    { id: 'DT/ughelli-north', stateCode: 'DT', name: 'Ughelli North', fiscalNote: 'uplands — gas belt' },
-    { id: 'DT/isoko-south', stateCode: 'DT', name: 'Isoko South', fiscalNote: 'oil-bearing, derivation-adjacent' },
-    { id: 'DT/ndokwa-east', stateCode: 'DT', name: 'Ndokwa East', fiscalNote: 'riverine — hard to reach' },
-    { id: 'DT/sapele', stateCode: 'DT', name: 'Sapele', fiscalNote: 'port town — timber and gas' },
-  ],
-  FC: [
-    { id: 'FC/amac', stateCode: 'FC', name: 'Abuja Municipal Area Council', fiscalNote: 'capital core — the seat' },
-    { id: 'FC/gwagwalada', stateCode: 'FC', name: 'Gwagwalada', fiscalNote: 'university corridor' },
-    { id: 'FC/bwari', stateCode: 'FC', name: 'Bwari', fiscalNote: 'north gate — dam and barracks' },
-    { id: 'FC/kuje', stateCode: 'FC', name: 'Kuje', fiscalNote: 'south-west — markets' },
-    { id: 'FC/kwali', stateCode: 'FC', name: 'Kwali', fiscalNote: 'rural fringe' },
-    { id: 'FC/abaji', stateCode: 'FC', name: 'Abaji', fiscalNote: 'south-west — border trade' },
-  ],
+// Offline council register: the third-tier councils, keyed by state, so the Chairman path can
+// be completed for any state when no database is configured. Supabase stays the source of
+// truth for all 774; this is the same graceful-fallback pattern as the state list, and it
+// covers every state with its capital council plus five more real ones, so no seat dead-ends.
+// The FCT's third tier is its six Area Councils, which is what a Chairman there would run.
+const REGISTER: Record<string, [string, string?][]> = {
+  AB: [['Aba North', 'commercial'], ['Aba South'], ['Umuahia North', 'capital'], ['Umuahia South'], ['Ohafia'], ['Isuikwuato']],
+  AD: [['Yola North', 'capital'], ['Yola South'], ['Girei'], ['Mubi North'], ['Numan'], ['Ganye']],
+  AK: [['Uyo', 'capital'], ['Eket'], ['Ikot Ekpene'], ['Oron'], ['Abak'], ['Itu']],
+  AN: [['Awka South', 'capital'], ['Awka North'], ['Onitsha North'], ['Onitsha South'], ['Nnewi North'], ['Aguata']],
+  BA: [['Bauchi', 'capital'], ['Katagum'], ['Misau'], ['Ningi'], ['Tafawa Balewa'], ['Darazo']],
+  BY: [['Yenagoa', 'capital'], ['Sagbama'], ['Ogbia'], ['Brass', 'riverine'], ['Southern Ijaw', 'riverine'], ['Nembe', 'riverine']],
+  BE: [['Makurdi', 'capital'], ['Gboko'], ['Otukpo'], ['Katsina-Ala'], ['Vandeikya'], ['Guma']],
+  BO: [['Maiduguri', 'capital'], ['Jere'], ['Biu'], ['Bama'], ['Dikwa'], ['Konduga']],
+  CR: [['Calabar Municipal', 'capital'], ['Calabar South'], ['Ogoja'], ['Ikom'], ['Obudu'], ['Akamkpa']],
+  DT: [['Oshimili South', 'capital territory'], ['Warri South', 'oil-servicing corridor'], ['Ughelli North', 'uplands — gas belt'], ['Isoko South', 'oil-bearing, derivation-adjacent'], ['Ndokwa East', 'riverine — hard to reach'], ['Sapele', 'port town — timber and gas']],
+  EB: [['Abakaliki', 'capital'], ['Afikpo North'], ['Afikpo South'], ['Ezza North'], ['Ishielu'], ['Onicha']],
+  ED: [['Oredo', 'capital'], ['Ikpoba-Okha'], ['Egor'], ['Esan West'], ['Etsako West'], ['Ovia North-East']],
+  EK: [['Ado-Ekiti', 'capital'], ['Ikere'], ['Ijero'], ['Ikole'], ['Ekiti East'], ['Efon']],
+  EN: [['Enugu North', 'capital'], ['Enugu South'], ['Enugu East'], ['Nsukka', 'university town'], ['Udi'], ['Awgu']],
+  FC: [['Abuja Municipal Area Council', 'capital core — the seat'], ['Gwagwalada', 'university corridor'], ['Bwari', 'north gate — dam and barracks'], ['Kuje', 'south-west — markets'], ['Kwali', 'rural fringe'], ['Abaji', 'south-west — border trade']],
+  GO: [['Gombe', 'capital'], ['Akko'], ['Billiri'], ['Kaltungo'], ['Dukku'], ['Balanga']],
+  IM: [['Owerri Municipal', 'capital'], ['Owerri North'], ['Owerri West'], ['Orlu'], ['Okigwe'], ['Aboh Mbaise']],
+  JI: [['Dutse', 'capital'], ['Hadejia'], ['Gumel'], ['Birnin Kudu'], ['Kazaure'], ['Ringim']],
+  KD: [['Kaduna North', 'capital'], ['Kaduna South'], ['Zaria'], ['Sabon Gari'], ["Jema'a", 'Kafanchan'], ['Kagarko']],
+  KE: [['Birnin Kebbi', 'capital'], ['Argungu'], ['Yauri'], ['Zuru'], ['Jega'], ['Bagudo']],
+  KN: [['Kano Municipal', 'capital'], ['Nassarawa'], ['Fagge'], ['Dala'], ['Wudil'], ['Gaya']],
+  KO: [['Lokoja', 'capital'], ['Okene'], ['Idah'], ['Kabba/Bunu'], ['Ankpa'], ['Yagba West']],
+  KT: [['Katsina', 'capital'], ['Daura'], ['Funtua'], ['Malumfashi'], ['Dutsin-Ma'], ['Musawa']],
+  KW: [['Ilorin West', 'capital'], ['Ilorin East'], ['Ilorin South'], ['Offa'], ['Irepodun', 'Omu-Aran'], ['Kaiama']],
+  LA: [['Ikeja', 'capital'], ['Lagos Island'], ['Lagos Mainland'], ['Eti-Osa'], ['Badagry'], ['Epe']],
+  NA: [['Lafia', 'capital'], ['Keffi'], ['Akwanga'], ['Karu'], ['Nasarawa Eggon'], ['Wamba']],
+  NI: [['Chanchaga', 'capital — Minna'], ['Bida'], ['Suleja'], ['Kontagora'], ['Lapai'], ['Bosso']],
+  OG: [['Abeokuta North', 'capital'], ['Abeokuta South'], ['Sagamu'], ['Ijebu-Ode'], ['Yewa South', 'Ilaro'], ['Ifo']],
+  ON: [['Akure South', 'capital'], ['Akure North'], ['Ondo West'], ['Akoko North-East', 'Ikare'], ['Owo'], ['Okitipupa']],
+  OS: [['Osogbo', 'capital'], ['Ilesa East'], ['Ilesa West'], ['Ife Central', 'Ile-Ife'], ['Ede North'], ['Iwo']],
+  OY: [['Ibadan North', 'capital'], ['Ibadan North-East'], ['Ibadan South-West'], ['Ogbomoso North'], ['Oyo East'], ['Iseyin']],
+  PL: [['Jos North', 'capital'], ['Jos South', 'Bukuru'], ['Barkin Ladi'], ['Pankshin'], ['Shendam'], ['Langtang North']],
+  RI: [['Port Harcourt', 'capital'], ['Obio/Akpor'], ['Eleme', 'oil and gas'], ['Bonny', 'oil and gas'], ['Okrika', 'riverine'], ['Degema', 'riverine']],
+  SO: [['Sokoto North', 'capital'], ['Sokoto South'], ['Tambuwal'], ['Gwadabawa'], ['Bodinga'], ['Wamako']],
+  TA: [['Jalingo', 'capital'], ['Wukari'], ['Bali'], ['Gashaka'], ['Takum'], ['Zing']],
+  YO: [['Damaturu', 'capital'], ['Potiskum'], ['Bade', 'Gashua'], ['Nguru'], ['Geidam'], ['Fika']],
+  ZA: [['Gusau', 'capital'], ['Kaura Namoda'], ['Talata Mafara'], ['Anka'], ['Bungudu'], ['Maradun']],
 }
+
+const LOCAL_LGAS: Record<string, FederationLga[]> = Object.fromEntries(
+  Object.entries(REGISTER).map(([code, rows]) => [
+    code,
+    rows.map(([name, note]) => ({
+      id: `${code}/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      stateCode: code,
+      name,
+      fiscalNote: note ?? 'council',
+    })),
+  ]),
+)
 
 export async function listLgas(stateCode: string): Promise<FederationLga[]> {
   const client = publicClient()

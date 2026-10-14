@@ -6,10 +6,12 @@ import type { Doc } from './content'
 import { useGame } from './game-context'
 import type { DocMarkState } from './DocumentView'
 
-/* rough hand-drawn Nigeria doodle with Delta marked (mockup 1) */
+/* rough hand-drawn Nigeria doodle, marked at the seat the player actually holds */
 function NigeriaDoodle() {
+  const { scenario } = useGame()
+  const label = scenario.stateName ?? 'Nigeria'
   return (
-    <svg width="210" height="150" viewBox="0 0 240 200" aria-label="hand-drawn sketch of Nigeria, Delta marked" style={{ overflow: 'visible' }}>
+    <svg width="210" height="150" viewBox="0 0 240 200" aria-label={`hand-drawn sketch of Nigeria, ${label} marked`} style={{ overflow: 'visible' }}>
       <path
         d="M30,62 C34,78 38,95 42,118 C44,136 48,152 58,164 C72,176 86,182 104,184
            C122,187 136,190 150,182 C164,175 178,172 192,166 C199,156 200,144 198,130
@@ -21,7 +23,7 @@ function NigeriaDoodle() {
       <path d="M116,172 q6,6 4,13 M110,175 q-2,7 2,11 M120,176 q4,5 3,10" fill="none" stroke="#2B3A67" strokeWidth="1.6" />
       <path d="M130,170 l40,-4" stroke="#2B3A67" strokeWidth="2.2" fill="none" />
       <path d="M166,162 l10,4 -10,5" fill="none" stroke="#2B3A67" strokeWidth="2.2" strokeLinejoin="round" />
-      <text x="138" y="160" fontFamily="Caveat, cursive" fontSize="24" fill="#2B3A67">Delta</text>
+      <text x="138" y="160" fontFamily="Caveat, cursive" fontSize="24" fill="#2B3A67">{label}</text>
     </svg>
   )
 }
@@ -139,11 +141,12 @@ function SecurityT({ doc }: { doc: Extract<Doc, { kind: 'security' }> }) {
 }
 
 function LetterT({ doc }: { doc: Extract<Doc, { kind: 'letter' }> }) {
+  const { scenario } = useGame()
   return (
     <>
       <div className="let-head">
         {doc.letterhead}
-        <span className="sub">SECRETARIAT · P.O.B. 602, ASABA, DELTA STATE</span>
+        <span className="sub">SECRETARIAT · {scenario.seat.toUpperCase()} · {scenario.jurisdictionShort}</span>
       </div>
       <div className="let-to">{doc.dateLine}<br />{doc.to}</div>
       <div className="let-sub">{doc.subject}</div>

@@ -1437,6 +1437,11 @@ body { background: var(--desk); }
 
 /* tray + cards */
 .desk-head, .desk-date, .desk-week { color: var(--ink); }
+/* the seat the desk is being held for — derived from the player's own record */
+.desk-office {
+  font: 700 11px/1.4 var(--sans); letter-spacing: .08em; color: var(--muted);
+  margin: 6px 0 2px; text-transform: uppercase;
+}
 .desk-rule { border-top-color: var(--line); }
 .tray-lip { display: none; }
 .paper-card {
@@ -1484,6 +1489,12 @@ body { background: var(--desk); }
 .act-btn.ready { outline: 2px solid rgba(31,122,77,.45); outline-offset: 2px; }
 .sig-tools button, .seg button { border: 1.5px solid var(--line); background: #fff; border-radius: var(--r-md); }
 .sig-tools button.on, .seg button.on { background: var(--green); color: #fff; border-color: var(--green); }
+
+/* budget: the variance row is the gap itself, not a movement of cash */
+.bud-row.variance .m { color: var(--muted); }
+.bud-note-tag {
+  display: block; font: 600 13px/1.25 var(--sans); color: var(--muted);
+}
 
 /* toast */
 .toast {

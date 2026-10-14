@@ -3,12 +3,13 @@
    renders view-models directly from the content pack. */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  DOCS, ASSET_DOCS, DECISIONS, ALLIES, BUDGET, OPENING_BALANCE, OPENING_NOTE,
-  WEEK, TERM, HANDOVER, ABUJA_SCENARIO, SECTOR_BRIEF, TELL_PACK, formatNaira,
-  SHORTFILL_NAIRA, SAPELE_AWARD_NAIRA, PENDING_TOTAL,
-  BUDGET_CLOSING, nairaDisplay,
+  ABUJA_SCENARIO, OPENING_BALANCE, formatNaira, nairaDisplay,
   type Doc, type Decision, type DecisionOption, type Ally,
 } from './content'
+import {
+  bootTarget, buildWeek, defaultTermStart, deriveScenario, scenarioInputFromFirstOpen,
+  type Pack, type ScenarioInput,
+} from './scenario'
 
 import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState, prologueAxes } from './profile/onboarding'
 import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
@@ -20,11 +21,11 @@ import {
   createProfile,
   findProfileById,
 } from './profile/client'
+import type { Profile } from './profile'
 import { JurisdictionStep, PostStep, ReviewStep, WhoStep } from './onboarding-steps'
 import { signOut } from './profile/auth'
-import { DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
 import { AuthSheet, handleAuthSubmit } from './profile/auth-sheet'
-import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
+import { GameContext, DEFAULT_SETTINGS, FALLBACK_SCENARIO, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { HoldToCommit, SPEC } from './hold'
 import {
@@ -51,6 +52,9 @@ interface Persist {
   glossQuarters?: number
   /** optional link to a Supabase-backed player profile (v1: onboarding only) */
   profileHandle?: string
+  /** the record the desk is built from — the player's own first-open choices, kept locally so
+      the desk still knows who they are and where they sit when Supabase is out of reach */
+  profile?: ScenarioInput
 }
 
 function load(): Persist {
@@ -62,6 +66,75 @@ function load(): Persist {
     }
   } catch { /* corrupt store — start clean */ }
   return { marks: {}, decisions: {} }
+}
+
+/* ---------- first-open draft ----------
+   One place that knows what an untouched wizard looks like, so the four places that used to
+   repeat the literal cannot drift apart. */
+type OnboardingPhase = 'none' | 'pick-post' | 'pick-state' | 'who' | 'profile-sheet' | 'entering-desk'
+
+interface OnboardingDraft {
+  phase: OnboardingPhase
+  states: import('./profile').FederationState[]
+  offices: import('./profile').FederationOffice[]
+  parties: import('./profile').FederationParty[]
+  stateCode: string | null
+  officeId: string | null
+  origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
+  bringer: 'godfather' | 'grassroots' | 'technocrat' | null
+  scar: 'none' | 'contract-query' | 'protest' | null
+  name: string
+  age: string
+  pronouns: string
+  locale: string
+  bio: string
+  altName: string
+  partyCode: string | null
+  lgaName: string | null
+  sheet: import('./profile').ProfileSheet | null
+  error: string | null
+}
+
+function draftOnboarding(): OnboardingDraft {
+  return {
+    phase: 'pick-post',
+    states: defaultFederationReference.states,
+    offices: ensureReferenceOffices(defaultFederationReference.offices),
+    parties: defaultFederationReference.parties,
+    stateCode: null,
+    officeId: null,
+    origin: null,
+    bringer: null,
+    scar: null,
+    name: '',
+    age: '',
+    pronouns: '',
+    locale: '',
+    bio: '',
+    altName: '',
+    partyCode: null,
+    lgaName: null,
+    sheet: null,
+    error: null,
+  }
+}
+
+/* A profile row read back from the database is the same shape the wizard collected: the desk
+   is rebuilt from it rather than from any fixed scenario. */
+function scenarioInputFromProfile(p: Profile): ScenarioInput {
+  return {
+    name: p.identity.name,
+    age: p.identity.age,
+    pronouns: p.identity.pronouns,
+    officeId: p.office.officeId,
+    tier: p.office.tier,
+    post: p.office.post,
+    route: p.office.elected ? 'elected' : 'appointed',
+    stateCode: p.identity.stateCode,
+    lgaName: p.identity.lgaName,
+    partyCode: p.party.current ?? p.identity.chosenParty,
+    termStart: p.office.termStart,
+  }
 }
 
 /* ---------- transfer slip: one-time export that burns the desk it left (§3.7) ---------- */
@@ -83,26 +156,24 @@ function decodeSlip(code: string): Persist | null {
   return null
 }
 
-function termStartFor(officeId: string): string {
-  if (officeId === 'fct/minister') return '2026-06-01'
-  if (officeId === 'local/chairman') return '2026-07-01'
-  return '2026-05-29'
-}
+
 
 const EMPTY_MARK: DocMarkState = { stamps: [], annotations: [] }
 const ORDER: Record<Doc['mark'], number> = { urgent: 0, fresh: 1, opened: 2, forwarded: 3 }
 
-function allDocs(): Doc[] { return [...DOCS, SECTOR_BRIEF, TELL_PACK, ...ASSET_DOCS] }
-function findDoc(id: string): Doc | undefined { return id === HANDOVER.id ? HANDOVER : allDocs().find(d => d.id === id) }
+function allDocs(pack: Pack): Doc[] { return [...pack.docs, ...pack.extras, ...pack.assets] }
+function findDoc(pack: Pack, id: string): Doc | undefined {
+  return id === pack.handover.id ? pack.handover : allDocs(pack).find(d => d.id === id)
+}
 
 const BADGE_TONE: Record<Ally['badge'], string> = { LOYAL: 'loyal', NEGOTIABLE: 'nego', LEVERAGE: 'lev' }
 
-function decStatus(dec: Decision, p: Persist): { done: boolean; choice?: string; ledger?: string } {
+function decStatus(dec: Decision, p: Persist, pack: Pack): { done: boolean; choice?: string; ledger?: string } {
   if (dec.special === 'gazette') {
     const st = p.marks[dec.docId]?.stamps[0]
     if (st) {
       return st.label === 'APPROVED'
-        ? { done: true, choice: 'Signed quietly — ' + nairaDisplay(SAPELE_AWARD_NAIRA) + ' committed', ledger: 'writes: evidence ledger · public goods · Halcyon Marine paid' }
+        ? { done: true, choice: 'Signed quietly — ' + nairaDisplay(pack.award) + ' committed', ledger: 'writes: evidence ledger · public goods · Halcyon Marine paid' }
         : { done: true, choice: 'Declined — stamped and returned', ledger: 'writes: promise broken to the contractor · Works lobby angry' }
     }
     if (p.decisions[dec.id] === 'refer') {
@@ -160,19 +231,21 @@ function TrayCard({ doc, mark, decided, pending, weathered, onOpen }: {
 /* ---------- Briefings: the Situation Desk ---------- */
 const DESK_HOURS_TOTAL = 14
 
-function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
-  p: Persist; onOpen: (id: string) => void; ticking: boolean; onCloseWeek: () => void
+function DeskScreen({ p, pack, onOpen, ticking, onCloseWeek }: {
+  p: Persist; pack: Pack; onOpen: (id: string) => void; ticking: boolean; onCloseWeek: () => void
 }) {
+  const cal = pack.scenario.calendar
+  const w = pack.scenario.w
   const docs = useMemo(() => {
-    const base = [...DOCS, SECTOR_BRIEF, TELL_PACK].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
-    return p.handoverDone ? base : [HANDOVER, ...base]
-  }, [p.handoverDone])
+    const base = [...pack.docs, ...pack.extras].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
+    return p.handoverDone ? base : [pack.handover, ...base]
+  }, [pack, p.handoverDone])
   const urgentOpen = docs.filter(d =>
     d.mark === 'urgent' &&
     !p.marks[d.id]?.stamps.length &&
-    !DECISIONS.some(x => x.docId === d.id && decStatus(x, p).done),
+    !pack.decisions.some(x => x.docId === d.id && decStatus(x, p, pack).done),
   ).length
-  const decisionHours = DECISIONS.reduce((sum, d) => sum + (decStatus(d, p).done ? d.hours : 0), 0)
+  const decisionHours = pack.decisions.reduce((sum, d) => sum + (decStatus(d, p, pack).done ? d.hours : 0), 0)
   const hoursSpent = decisionHours + (p.glossQuarters ?? 0) / 4
   const hoursLeft = Math.max(0, DESK_HOURS_TOTAL - hoursSpent)
   const wholeLeft = Math.floor(hoursLeft + 1e-9)
@@ -181,12 +254,13 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
   return (
     <>
       <div className="desk-head">
-        <span className="desk-date">{WEEK.dateLine}</span>
-        <span className="desk-week">{WEEK.weekLine}</span>
+        <span className="desk-date">{cal.dayLine}</span>
+        <span className="desk-week">{cal.weekLine}</span>
+        <div className="desk-office">{w.briefingLine}</div>
         <div className="desk-tag">
           {urgentOpen > 0 ? `${urgentOpen} URGENT` : 'TRIAGE DONE'} · {docs.length} DOCUMENTS
         </div>
-        <div className="desk-term">{TERM.line}</div>
+        <div className="desk-term">{pack.scenario.term.line}</div>
         <div className="desk-hours" aria-label={`Desk Hours: ${wholeLeft} of ${DESK_HOURS_TOTAL} left`}>
           <span className="dh-label">DESK HOURS</span>
           <span className="dh-ticks">
@@ -196,16 +270,14 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
           </span>
           <span className="dh-count">{wholeLeft}{frac} / {DESK_HOURS_TOTAL} LEFT — USE OR LOSE</span>
         </div>
-        <div className="desk-deadlines">
-          ASUU ultimatum 15 Oct · NLC window closes 20 Oct · FAAC drops 21 Oct
-        </div>
+        <div className="desk-deadlines">{cal.deadlineLine}</div>
       </div>
       <div className="tray">
         <div className="tray-lip" />
         <div className="tray-list">
           {docs.map(d => {
-            const linked = DECISIONS.filter(x => x.docId === d.id)
-            const decided = linked.some(x => decStatus(x, p).done)
+            const linked = pack.decisions.filter(x => x.docId === d.id)
+            const decided = linked.some(x => decStatus(x, p, pack).done)
             const pending = linked.length > 0 && !decided
             return (
               <TrayCard key={d.id} doc={d} mark={p.marks[d.id]}
@@ -225,7 +297,7 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
           aria-label={p.weekFiled ? 'Week filed' : 'Close the week and autosave'}
         >
           {p.weekFiled
-            ? 'WEEK 41 FILED ✓ — THE DESK IS CLEAN. INBOX REOPENS MONDAY.'
+            ? cal.filedLine
             : 'CLOSE THE WEEK — THE DESK TIDIES ITSELF, THE LOG IS WRITTEN'}
         </button>
         <div className="close-hint">Autosave runs on commit, never before (§3.7)</div>
@@ -289,17 +361,18 @@ function AllyCard({ a, onOpen }: { a: Ally; onOpen: (id: string) => void }) {
   )
 }
 
-function AlliesScreen({ onOpen }: { onOpen: (id: string) => void }) {
+function AlliesScreen({ pack, onOpen }: { pack: Pack; onOpen: (id: string) => void }) {
+  const w = pack.scenario.w
   return (
     <>
       <div className="screen-head ally-head">
-        <h2>Allies · Deputy Ticket</h2>
-        <p>ZONING CHECK · 4 KEY RELATIONSHIPS</p>
+        <h2>Allies · {pack.scenario.tier === 'local' || pack.scenario.tier === 'fct' ? 'Slate' : 'Deputy Ticket'}</h2>
+        <p>ZONING CHECK · {pack.allies.length} KEY RELATIONSHIPS</p>
       </div>
       <div className="ticket-cards">
         <button className="shortcut-card" onClick={() => onOpen('running-mate')}>
-          <b>Deputy Ticket — Zoning Check</b>
-          Who balances the ticket: zone, faith, machine, money, baggage. The South row is circled in red.
+          <b>{w.ticketTitle}</b>
+          Who balances it: zone, faith, machine, money, baggage. The {w.ticketRows[2][0]} row is circled in red.
         </button>
         <button className="shortcut-card locked" disabled>
           <b><IcLock width={14} height={14} /> {ABUJA_SCENARIO.title}</b>
@@ -307,21 +380,22 @@ function AlliesScreen({ onOpen }: { onOpen: (id: string) => void }) {
         </button>
       </div>
       <div className="ally-list">
-        {ALLIES.map(a => <AllyCard key={a.id} a={a} onOpen={onOpen} />)}
+        {pack.allies.map(a => <AllyCard key={a.id} a={a} onOpen={onOpen} />)}
       </div>
     </>
   )
 }
 
 /* ---------- Decisions ---------- */
-function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset }: {
+function DecisionsScreen({ p, pack, onOpen, onDecide, onToast, onReset }: {
   p: Persist
+  pack: Pack
   onOpen: (id: string) => void
   onDecide: (id: string, key: string) => void
   onToast: (msg: string) => void
   onReset: () => void
 }) {
-  const awaiting = DECISIONS.filter(d => !decStatus(d, p).done).length
+  const awaiting = pack.decisions.filter(d => !decStatus(d, p, pack).done).length
   const commit = (dec: Decision, o: DecisionOption) => {
     if (dec.special === 'gazette' && o.key === 'sign') { onOpen(dec.docId); return }
     onDecide(dec.id, o.key)
@@ -329,13 +403,13 @@ function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset }: {
   return (
     <>
       <div className="dec-head">
-        <span>DECISIONS · 8 OCT 2026</span>
+        <span>{pack.scenario.calendar.decisionsHead}</span>
         <span className="dec-head-right">{awaiting} AWAITING YOUR STAMP</span>
       </div>
       <hr className="desk-rule" />
       <div className="dec-list">
-        {DECISIONS.map(dec => {
-          const st = decStatus(dec, p)
+        {pack.decisions.map(dec => {
+          const st = decStatus(dec, p, pack)
           return (
             <div className="dec-card" key={dec.id}>
               <svg className="dec-clip" width="26" height="56" viewBox="0 0 34 74" aria-hidden>
@@ -396,54 +470,51 @@ function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset }: {
 }
 
 /* ---------- Budget ---------- */
-function BudgetScreen() {
-  // Running balance: sum every posted row that is NOT pending. Pending rows are
-  // excluded from the running balance (they are not charged until sanctioned).
-  // The closing shown here is BUDGET_CLOSING, which is computed in content.ts as
-  //   OPENING_BALANCE + FAAC_NET + IGR_SEPTEMBER + FEDERATION_REFUND
-  //   - (sum of the ten committed lines)
-  // and equals 8,275,860,000. Pending is NOT in BUDGET_CLOSING.
-  let bal = OPENING_BALANCE
-  const rows = BUDGET.map(r => {
-    if (!r.pending) bal += r.amount
+function BudgetScreen({ pack }: { pack: Pack }) {
+  // Running balance: every posted row that is neither pending (not charged until sanctioned)
+  // nor a variance (the shortfall is the gap itself, not a movement of cash). The closing is
+  // recomputed here from the rows the scenario produced, so the arithmetic on screen is the
+  // arithmetic that was derived — and it holds at every tier, because the scale is uniform.
+  const m = pack.scenario.money
+  const cal = pack.scenario.calendar
+  let bal = m.opening
+  const rows = m.rows.map(r => {
+    if (!r.pending && !r.variance) bal += r.amount
     return { ...r, running: bal }
   })
-  // The running balance at the end of the non-pending rows MUST equal BUDGET_CLOSING.
-  // If a row was edited and this drifts, the test suite catches it below.
-  const close = BUDGET_CLOSING
-  const afterSanction = close - PENDING_TOTAL   // sanctioning REDUCES cash; pending never added
   return (
     <div className="bud-sheet">
-      <div className="bud-title">Consolidated Revenue Fund — State Treasury</div>
-      <div className="bud-sub">OCTOBER 2026 · WEEK 41 · ALL FIGURES TO THE NAIRA</div>
-      <div className="bud-open"><span>OPENING, 1 OCT</span><span>{formatNaira(OPENING_BALANCE)}</span></div>
-      <div className="bud-note">{OPENING_NOTE} · THE WAGE BILL IS ABOUT A THIRD OF THIS MONTH'S FAAC</div>
+      <div className="bud-title">{m.fundTitle}</div>
+      <div className="bud-sub">{cal.monthLabel} · WEEK {cal.weekNumber} · {m.fundSub}</div>
+      <div className="bud-open"><span>OPENING, 1 {cal.monthLabel.split(' ')[0]}</span><span>{formatNaira(m.opening)}</span></div>
+      <div className="bud-note">{m.openingNote} · THE WAGE BILL IS THE LARGEST LINE BELOW</div>
       {rows.map((r, i) => (
-        <div className={`bud-row${r.pending ? ' pending' : ''}`} key={i}>
+        <div className={`bud-row${r.pending ? ' pending' : ''}${r.variance ? ' variance' : ''}`} key={i}>
           <span className="d">{r.date}</span>
           <span className="m">
             {r.memo}
             {r.pending && <span className="bud-pending-tag">awaiting your sanction — not charged</span>}
+            {r.variance && <span className="bud-note-tag">the gap itself — not a movement of cash</span>}
           </span>
           <span className={`a ${r.amount >= 0 ? 'credit' : 'debit'}`}>{formatNaira(r.amount)}</span>
         </div>
       ))}
-      <div className="bud-close"><span>CLOSING, 8 OCT</span><span>{formatNaira(close)}</span></div>
+      <div className="bud-close"><span>CLOSING, {cal.shortDate.split(' ').slice(0, 2).join(' ')}</span><span>{formatNaira(m.closing)}</span></div>
       <div className="bud-foot">
-        IF EVERY PENDING ITEM IS SANCTIONED: {formatNaira(afterSanction)}<br />
-        AUTHORITY: ss.121–125 — STATE APPROPRIATION (ANALOG OF ss.80–89) · FAAC SHORTFALL THIS MONTH: {nairaDisplay(SHORTFILL_NAIRA)}
+        IF EVERY PENDING ITEM IS SANCTIONED: {formatNaira(m.afterSanction)}<br />
+        AUTHORITY: {m.authorityLine} · {pack.scenario.w.allocation.toUpperCase()} SHORTFALL THIS MONTH: {nairaDisplay(m.shortfall)}
       </div>
     </div>
   )
 }
 
 /* ---------- Files (archive) ---------- */
-function FilesScreen({ p, onOpen, onOpenDrawer }: {
-  p: Persist; onOpen: (id: string) => void; onOpenDrawer: () => void
+function FilesScreen({ p, pack, onOpen, onOpenDrawer }: {
+  p: Persist; pack: Pack; onOpen: (id: string) => void; onOpenDrawer: () => void
 }) {
-  const acted = DOCS.filter(d => {
+  const acted = pack.docs.filter(d => {
     const m = p.marks[d.id]
-    const decided = DECISIONS.some(x => x.docId === d.id && decStatus(x, p).done)
+    const decided = pack.decisions.some(x => x.docId === d.id && decStatus(x, p, pack).done)
     return (m && (m.stamps.length || m.annotations.length)) || decided
   })
   const filedHandover = Boolean(p.handoverDone)
@@ -461,10 +532,10 @@ function FilesScreen({ p, onOpen, onOpenDrawer }: {
       ) : (
         <div className="file-list">
           {filedHandover && (
-            <button className="file-row" onClick={() => onOpen(HANDOVER.id)}>
+            <button className="file-row" onClick={() => onOpen(pack.handover.id)}>
               <span>
-                <span className="fr-title">{HANDOVER.title}</span><br />
-                <span className="fr-id">{HANDOVER.recordId}</span>
+                <span className="fr-title">{pack.handover.title}</span><br />
+                <span className="fr-id">{pack.handover.recordId}</span>
               </span>
               <span className="fr-state">FILED ✓</span>
             </button>
@@ -472,7 +543,7 @@ function FilesScreen({ p, onOpen, onOpenDrawer }: {
           {acted.map(d => {
             const m = p.marks[d.id]
             const st = m?.stamps[0]
-            const decided = DECISIONS.some(x => x.docId === d.id && decStatus(x, p).done)
+            const decided = pack.decisions.some(x => x.docId === d.id && decStatus(x, p, pack).done)
             const state = st ? `STAMPED ${st.label}` : decided ? 'DECIDED' : 'ANNOTATED'
             return (
               <button className="file-row" key={d.id} onClick={() => onOpen(d.id)}>
@@ -622,28 +693,7 @@ export default function App() {
   const [persist, setPersist] = useState<Persist>(load)
 
   // ---- first-open gate: profile + onboarding (Supabase-backed when configured) ----
-  type OnboardingPhase = 'none' | 'pick-post' | 'pick-state' | 'who' | 'profile-sheet' | 'entering-desk'
-  const [onboarding, setOnboarding] = useState<{
-    phase: OnboardingPhase
-    states: import('./profile').FederationState[]
-    offices: import('./profile').FederationOffice[]
-    parties: import('./profile').FederationParty[]
-    stateCode: string | null
-    officeId: string | null
-    origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
-    bringer: 'godfather' | 'grassroots' | 'technocrat' | null
-    scar: 'none' | 'contract-query' | 'protest' | null
-    name: string
-    age: string
-    pronouns: string
-    locale: string
-    bio: string
-    altName: string
-    partyCode: string | null
-    lgaName: string | null
-    sheet: import('./profile').ProfileSheet | null
-    error: string | null
-  } | null>(null)
+  const [onboarding, setOnboarding] = useState<OnboardingDraft | null>(null)
   const [tab, setTab] = useState<Tab>('briefings')
   const [openId, setOpenId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null)
@@ -654,6 +704,16 @@ export default function App() {
   const expanded = useExpanded()
   const toastTimer = useRef(0)
   const tickTimer = useRef(0)
+
+  /* ---- the desk is derived from the player's own record ----
+     Office, jurisdiction, party, name and term all come from the profile the wizard wrote.
+     There is no fixed scenario to land in: with no record there is no desk, and the wizard
+     is the only way onto a seat. */
+  const scenario = useMemo(
+    () => (persist.profile ? deriveScenario(persist.profile) : null),
+    [persist.profile],
+  )
+  const pack = useMemo(() => (scenario ? buildWeek(scenario) : null), [scenario])
 
   // ---- Supabase auth gate (sign-in / sign-up sheet before first-open onboarding) ----
   const [showAuthSheet, setShowAuthSheet] = useState(false)
@@ -699,31 +759,10 @@ export default function App() {
     setShowAuthSheet(false)
     clearAuthFields()
     if (authRef.current.mode === 'sign-up') {
-      // New account: boot the first-open onboarding so the player creates their profile.
-      // Use the local Delta reference data so this works without a live DB fetch here;
-      // the federation reference is re-fetched from Supabase inside the onboarding boot
-      // once profileHandle is set (see the boot effect below).
-      setOnboarding({
-        phase: 'pick-post',
-        states: defaultFederationReference.states,
-        offices: ensureReferenceOffices(defaultFederationReference.offices),
-        parties: defaultFederationReference.parties,
-        stateCode: null,
-        officeId: null,
-        origin: null,
-        bringer: null,
-        scar: null,
-        name: '',
-        age: '',
-        pronouns: '',
-        locale: '',
-        bio: '',
-        altName: '',
-        partyCode: null,
-        lgaName: null,
-        sheet: null,
-        error: null,
-      })
+      // New account: boot the first-open wizard so the player writes the record the desk
+      // will be derived from. The reference data here is the local fallback; nothing about
+      // it decides who the player is.
+      setOnboarding(draftOnboarding())
     } else {
       // Existing account: skip onboarding, go straight to the desk.
       setOnboarding(null)
@@ -750,95 +789,44 @@ export default function App() {
 
   // ---- first-open gate: auth sheet → first-open onboarding → desk ----
   //
-  // The NPC delta (M. A. Bamgboye / 52 / Delta governor) is ONLY the fallback scenario you
-  // can land in AFTER you have chosen office + identity — and only when no Supabase is
-  // configured. It is never served as the player's own record on first open.
-  //
-  // When Supabase is configured and the player has no profileHandle, the first screen is the
-  // sign-in / sign-up sheet. Signing in (existing account) goes straight to the desk; signing
-  // up (new account) boots the first-open onboarding so the player can create their profile.
-  // When Supabase is not configured, the boot falls back to the local Delta tutorial onboarding.
-  //
-  // When handleAuth signs a player up it sets profileHandle AND sets onboarding to pick-post
-  // in the same batch; the effect below must not clobber that onboarding with the desk.
+  // The desk is not a fixed scenario. A record on this phone (persist.profile) is enough to
+  // build it; a Supabase profile row is read back into the same shape; with neither, the
+  // first-open wizard is where the player writes the record the desk will be derived from.
+  // Nothing lands a player on somebody else's desk.
   useEffect(() => {
-    if (persist.profileHandle) {
-      // Don't clobber an onboarding the player is actively in the middle of (sign-up sets
-      // onboarding to pick-post and profileHandle in the same batch; let that onboarding stand).
-      if (onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk') {
-        return
-      }
-      if (!supabaseConfigured()) {
-        setOnboarding(null)
-        return
-      }
-      // No active onboarding — decide on whether a profile row already exists for this user.
+    // A wizard the player is actively in the middle of (a re-take) is never clobbered.
+    const wizardLive = Boolean(onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk')
+    const target = bootTarget({
+      hasProfile: Boolean(persist.profile),
+      profileHandle: persist.profileHandle,
+      supabaseConfigured: supabaseConfigured(),
+      wizardLive,
+    })
+
+    if (target === 'desk') {
+      if (!wizardLive) setOnboarding(null)
+      return
+    }
+    if (wizardLive) return
+    if (target === 'fetch-profile' && persist.profileHandle) {
       findProfileById(persist.profileHandle)
         .then(profile => {
           if (profile) {
-            // Existing profile (sign-in, or sign-up + accept) — skip onboarding, go to the desk.
-            setOnboarding(null)
+            // Existing profile — rebuild the desk from the player's own record.
+            setPersist(p => ({ ...p, profile: scenarioInputFromProfile(profile) }))
           } else {
-            // New account that hasn't accepted yet (sign-up, not yet on the accept step) —
-            // continue the first-open onboarding so the player can create their profile.
-            setOnboarding({
-              phase: 'pick-post',
-              states: defaultFederationReference.states,
-              offices: ensureReferenceOffices(defaultFederationReference.offices),
-              parties: defaultFederationReference.parties,
-              stateCode: null,
-              officeId: null,
-              origin: null,
-              bringer: null,
-              scar: null,
-              name: '',
-              age: '',
-              pronouns: '',
-              locale: '',
-              bio: '',
-              altName: '',
-              partyCode: null,
-              lgaName: null,
-              sheet: null,
-              error: null,
-            })
+            setOnboarding(prev => (prev && prev.phase !== 'none' ? prev : draftOnboarding()))
           }
         })
         .catch(() => {
-          // Can't reach Supabase right now — keep the player on the desk rather than
-          // throwing them back to the auth sheet.
-          setOnboarding(null)
+          // Can't reach Supabase right now — offer the wizard rather than an empty desk.
+          setOnboarding(prev => (prev && prev.phase !== 'none' ? prev : draftOnboarding()))
         })
       return
     }
-    if (!supabaseConfigured()) {
-      // Local fallback: Delta tutorial reference data, blank identity, office picker first.
-      setOnboarding({
-        phase: 'pick-post',
-        states: defaultFederationReference.states,
-        offices: ensureReferenceOffices(defaultFederationReference.offices),
-        parties: defaultFederationReference.parties,
-        stateCode: null,
-        officeId: null,
-        origin: null,
-        bringer: null,
-        scar: null,
-        name: '',
-        age: '',
-        pronouns: '',
-        locale: '',
-        bio: '',
-        altName: '',
-        partyCode: null,
-        lgaName: null,
-        sheet: null,
-        error: null,
-      })
-      return
-    }
-    // Supabase configured, no profileHandle yet — show the sign-in / sign-up sheet.
-    setShowAuthSheet(true)
-  }, [persist.profileHandle])
+    // No record anywhere yet: the wizard is the only way onto a seat.
+    setOnboarding(draftOnboarding())
+  }, [persist.profile, persist.profileHandle])
 
   const showToast = (msg: string) => {
     setToast({ id: Date.now(), msg })
@@ -864,19 +852,19 @@ export default function App() {
     tickTimer.current = window.setTimeout(() => {
       setTicking(false)
       setPersist(pr => ({ ...pr, weekFiled: true }))
-      showToast('AUTOSAVED — COMMAND LOG APPENDED · WEEK 41 FILED')
+      showToast(`AUTOSAVED — COMMAND LOG APPENDED · WEEK ${scenario?.calendar.weekNumber ?? ''} FILED`)
     }, 1900)
   }
 
   const openDoc = (id: string) => setOpenId(id)
-  const doc = openId ? findDoc(openId) : undefined
+  const doc = pack && openId ? findDoc(pack, openId) : undefined
 
   const setMark = (id: string, m: DocMarkState) =>
     setPersist(p => ({ ...p, marks: { ...p.marks, [id]: m } }))
 
   const decide = (id: string, key: string) => {
     setPersist(p => ({ ...p, decisions: { ...p.decisions, [id]: key } }))
-    const dec = DECISIONS.find(d => d.id === id)
+    const dec = pack?.decisions.find(d => d.id === id)
     const opt = dec?.options.find(o => o.key === key)
     if (opt?.level === 3) {
       /* career-ending: the screen takes the hit with you */
@@ -893,10 +881,10 @@ export default function App() {
     showToast('WEEK CLEARED — THE DESK IS EMPTY AGAIN')
   }
 
-  const urgentBadge = (persist.handoverDone ? 0 : 1) + DOCS.filter(d =>
+  const urgentBadge = !pack ? 0 : (persist.handoverDone ? 0 : 1) + pack.docs.filter(d =>
     d.mark === 'urgent' &&
     !persist.marks[d.id]?.stamps.length &&
-    !DECISIONS.some(x => x.docId === d.id && decStatus(x, persist).done),
+    !pack.decisions.some(x => x.docId === d.id && decStatus(x, persist, pack).done),
   ).length
 
   const settings = persist.settings ?? DEFAULT_SETTINGS
@@ -905,6 +893,7 @@ export default function App() {
 
   const hooks: GameHooks = {
     settings,
+    scenario: scenario ?? FALLBACK_SCENARIO,
     askAide: () => {
       setPersist(pr => ({ ...pr, glossQuarters: (pr.glossQuarters ?? 0) + 1 }))
       showToast('THE AIDE EXPLAINS — ¼ DESK HOUR (loyalty may colour this)')
@@ -913,13 +902,15 @@ export default function App() {
     setLiteracy,
   }
 
-  const screens: Record<Tab, React.ReactNode> = {
-    briefings: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
-    allies: <AlliesScreen onOpen={openDoc} />,
-    decisions: <DecisionsScreen p={persist} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} />,
-    budget: <BudgetScreen />,
-    files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
-  }
+  const screens: Record<Tab, React.ReactNode> = pack
+    ? {
+      briefings: <DeskScreen p={persist} pack={pack} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
+      allies: <AlliesScreen pack={pack} onOpen={openDoc} />,
+      decisions: <DecisionsScreen p={persist} pack={pack} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} />,
+      budget: <BudgetScreen pack={pack} />,
+      files: <FilesScreen p={persist} pack={pack} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
+    }
+    : ({} as Record<Tab, React.ReactNode>)
 
   const tabbar = (
     <nav className="tabbar" aria-label="Desk sections">
@@ -948,8 +939,8 @@ export default function App() {
       onMark={m => setMark(doc.id, m)}
       onToast={showToast}
       pendingDecision={
-        doc.id !== 'handover' &&
-        DECISIONS.some(x => x.docId === doc.id && !decStatus(x, persist).done)
+        doc.id !== pack?.handover.id &&
+        Boolean(pack?.decisions.some(x => x.docId === doc.id && !decStatus(x, persist, pack).done))
       }
       onGoDecide={() => { setOpenId(null); setTab('decisions') }}
       onFileAway={doc.id === 'handover'
@@ -986,7 +977,7 @@ export default function App() {
             <span className="tick-sheet t4" />
           </div>
           <div className="tick-lamp" />
-          <div className="tick-word">TIDYING THE DESK OVERNIGHT — WEEK 41 → FILED</div>
+          <div className="tick-word">{scenario?.calendar.tickLine ?? 'TIDYING THE DESK OVERNIGHT'}</div>
         </div>
       )}
       {flash > 0 && <span className="commit-flash" key={flash} />}
@@ -1017,7 +1008,7 @@ export default function App() {
         tier: office.tier,
         post: office.post,
         elected: office.route === 'elected',
-        termStart: termStartFor(office.id),
+        termStart: defaultTermStart(office.tier),
         officeId: office.id,
       } as ProfileOffice,
       party: {
@@ -1032,9 +1023,11 @@ export default function App() {
 
   /* The wizard's step rail: direct posts skip the jurisdiction screen, so their file is
      3 steps rather than 4. */
-  const obOffice = onboarding?.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE
-  const obRoute = postRoute(obOffice)
-  const obNeedsJurisdiction = obRoute.kind === 'state' || obRoute.kind === 'state-then-lga'
+  const obOffice = onboarding && onboarding.officeId
+    ? onboarding.offices.find(o => o.id === onboarding.officeId) ?? null
+    : null
+  const obRoute = obOffice ? postRoute(obOffice) : null
+  const obNeedsJurisdiction = obRoute?.kind === 'state' || obRoute?.kind === 'state-then-lga'
   const obTotal = obNeedsJurisdiction ? 4 : 3
   const obStep = !onboarding || onboarding.phase === 'pick-post' ? 1
     : onboarding.phase === 'pick-state' ? 2
@@ -1043,7 +1036,7 @@ export default function App() {
   const obStateObj = onboarding?.states.find(s => s.code === onboarding.stateCode)
   const obStateName = obStateObj?.name ?? 'the Federation'
   const obStateFull = obStateObj && obStateObj.tier === 'state' ? `${obStateObj.name} State` : obStateName
-  const obMeta = onboarding?.sheet
+  const obMeta = onboarding?.sheet && obOffice
     ? obOffice.jurisdiction === 'nation'
       ? `Age ${onboarding.sheet.age} • ${obOffice.post} — the Federation`
       : obOffice.tier === 'fct'
@@ -1051,13 +1044,41 @@ export default function App() {
         : `Age ${onboarding.sheet.age} • ${obOffice.post} — ${onboarding.lgaName ? onboarding.lgaName + ', ' : ''}${obStateFull}`
     : ''
 
-  /* Accept writes the record (Supabase when configured, local otherwise) and enters the desk. */
+  /* Accept writes the record — always on this phone, so the desk exists without a network —
+     and to Supabase too when the player is signed in. */
   const obAccept = async () => {
     const s = onboarding
-    if (!s || s.phase !== 'profile-sheet' || !s.sheet) return
+    if (!s || s.phase !== 'profile-sheet' || !s.sheet || !s.officeId) return
+    const office = s.offices.find(o => o.id === s.officeId)
+    if (!office) {
+      setOnboarding(o => (o ? { ...o, error: 'Office not found.' } : null))
+      return
+    }
+    const stateRow = s.states.find(x => x.code === s.stateCode) ?? null
+    const record = scenarioInputFromFirstOpen({
+      name: s.name,
+      age: s.age,
+      pronouns: s.pronouns,
+      officeId: office.id,
+      tier: office.tier,
+      post: office.post,
+      route: office.route,
+      stateCode: s.stateCode,
+      stateName: stateRow?.name ?? null,
+      capital: stateRow?.capital ?? null,
+      lgaName: s.lgaName,
+      partyCode: s.partyCode,
+      partyName: s.parties.find(p => p.code === s.partyCode)?.name ?? null,
+    })
+    if (!record) {
+      setOnboarding(o => (o ? { ...o, error: 'Office not found.' } : null))
+      return
+    }
+    setPersist(p => ({ ...p, profile: record }))
     const authUserId = persist.profileHandle
     if (!authUserId || !supabaseConfigured()) {
       setOnboarding(o => (o ? { ...o, phase: 'entering-desk' } : null))
+      showToast('YOUR RECORD IS SET — THE DESK IS BUILT FROM IT')
       return
     }
     try {
@@ -1114,27 +1135,7 @@ export default function App() {
                 onSubmit={handleAuth}
                 onBack={() => {
                   setShowAuthSheet(false)
-                  setOnboarding({
-                    phase: 'pick-post',
-                    states: defaultFederationReference.states,
-                    offices: ensureReferenceOffices(defaultFederationReference.offices),
-                    parties: defaultFederationReference.parties,
-                    stateCode: null,
-                    officeId: null,
-                    origin: null,
-                    bringer: null,
-                    scar: null,
-                    name: '',
-                    age: '',
-                    pronouns: '',
-                    locale: '',
-                    bio: '',
-                    altName: '',
-                    partyCode: null,
-                    lgaName: null,
-                    sheet: null,
-                    error: null,
-                  })
+                  setOnboarding(draftOnboarding())
                 }}
               />
             </div>
@@ -1150,7 +1151,7 @@ export default function App() {
                   offices={selectableOffices(onboarding.offices)}
                   officeId={onboarding.officeId}
                   step={obStep} total={obTotal}
-                  onBack={() => setOnboarding(null)}
+                  onBack={pack ? () => setOnboarding(null) : undefined}
                   onPick={o => setOnboarding(s => (s ? { ...s, officeId: o.id, stateCode: null, lgaName: null } : null))}
                   onContinue={() => setOnboarding(s => {
                     if (!s) return null
@@ -1161,7 +1162,7 @@ export default function App() {
                     return { ...s, phase: 'pick-state' as const, stateCode: null, lgaName: null }
                   })}
                 />
-              ) : onboarding.phase === 'pick-state' ? (
+              ) : onboarding.phase === 'pick-state' && obOffice ? (
                 <JurisdictionStep
                   office={obOffice}
                   states={stateChoicesFor(obOffice, onboarding.states)}
@@ -1173,7 +1174,7 @@ export default function App() {
                   onPickLga={lga => setOnboarding(s => (s ? { ...s, stateCode: lga ? lga.stateCode : null, lgaName: lga ? lga.name : null } : null))}
                   onContinue={() => setOnboarding(s => (s ? { ...s, phase: 'who' as const } : null))}
                 />
-              ) : onboarding.phase === 'who' ? (
+              ) : onboarding.phase === 'who' && obOffice ? (
                 <WhoStep
                   office={obOffice}
                   stateName={obStateName}
@@ -1214,7 +1215,7 @@ export default function App() {
             </div>
           </div>
         </main>
-      ) : (
+      ) : !pack ? null : (
         <main className="app-main" key={tab}>
           <div className="zoom-layer">
             {documentView || (expanded && tab === 'briefings'
@@ -1233,9 +1234,9 @@ export default function App() {
           {expanded ? (
             <div className="app-body expanded">
               <aside className="col col-tray">
-                <div className="col-head">IN-TRAY · {WEEK.weekLine}</div>
+                <div className="col-head">IN-TRAY · {scenario?.calendar.weekLine}</div>
                 <div className="col-scroll">
-                  <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />
+                  {pack && <DeskScreen p={persist} pack={pack} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />}
                 </div>
               </aside>
               <section className="col col-surface">{surface}</section>
@@ -1243,7 +1244,7 @@ export default function App() {
                 {tabbar}
                 <div className="col-head">REFERENCE SHELF</div>
                 <div className="shelf-list">
-                  {allDocs().filter(d => d.kind !== 'tell').slice(0, 8).map(d => (
+                  {pack && allDocs(pack).filter(d => d.kind !== 'tell').slice(0, 8).map(d => (
                     <button key={d.id} className="shelf-card" onClick={() => openDoc(d.id)}>
                       <b>{d.title}</b>
                       <span>{d.authority}</span>
@@ -1252,9 +1253,9 @@ export default function App() {
                 </div>
                 <div className="col-head">DEADLINES</div>
                 <div className="shelf-deadlines">
-                  ASUU ultimatum 15 Oct<br />
-                  NLC window closes 20 Oct<br />
-                  FAAC drops 21 Oct
+                  {scenario?.calendar.deadlines.map(d => (
+                    <div key={d.label}>{d.label} {d.date}</div>
+                  ))}
                 </div>
                 <button className="dec-goto" onClick={() => setDrawer(true)}>OPEN THE DRAWER — SETTINGS</button>
               </aside>

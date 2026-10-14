@@ -309,8 +309,10 @@ describe('first-open boot does not serve the NPC as the player record', () => {
     } as any
     const sheet = nextSheetState(noName).sheet
     expect(sheet).toBeTruthy()
-    // When the player supplies no name, nextSheetState still does not reach for the NPC
-    // by default — it only falls back to the NPC literal when the player has supplied nothing.
-    expect(sheet!.name).toBe('M. A. Bamgboye')
+    // The sheet must never reach for the NPC. The wizard requires a name before this step,
+    // so an empty one here means something went wrong — and the honest answer is an empty
+    // record, not the tutorial NPC's name.
+    expect(sheet!.name).toBe('')
+    expect(sheet!.name).not.toBe('M. A. Bamgboye')
   })
 })

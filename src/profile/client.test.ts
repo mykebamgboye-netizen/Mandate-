@@ -35,7 +35,7 @@ describe('Supabase env wiring', () => {
 })
 
 describe('offline council register', () => {
-  it('serves real councils for Delta and the FCT when Supabase is absent', async () => {
+  it('serves real councils for every state, so no Chairman post dead-ends', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', '')
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
     const mod = await freshModule()
@@ -49,7 +49,17 @@ describe('offline council register', () => {
     const fct = await mod.listLgas('FC')
     expect(fct.map(l => l.name)).toContain('Abuja Municipal Area Council')
 
-    // A state with no local fallback is empty, not a crash.
-    expect(await mod.listLgas('KN')).toEqual([])
+    // Every state the picker offers comes back with real councils and a capital-area one:
+    // a council post is playable in Kano, Lagos, Rivers — not just the tutorial's state.
+    const states = await mod.listStates()
+    for (const st of states) {
+      const rows = await mod.listLgas(st.code)
+      expect(rows.length, `${st.name} needs councils`).toBeGreaterThanOrEqual(6)
+      expect(rows.every(l => l.stateCode === st.code)).toBe(true)
+      expect(rows.some(l => l.fiscalNote.includes('capital')), `${st.name} capital area`).toBe(true)
+    }
+
+    // A code that is not a state is empty, not a crash.
+    expect(await mod.listLgas('ZZ')).toEqual([])
   })
 })
