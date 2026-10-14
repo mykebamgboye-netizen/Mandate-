@@ -92,7 +92,7 @@ describe('dirty trick → EFCC probe → postless godfather path', () => {
   })
 
   it('career can fall to godfather role via scandal', async () => {
-    // Test that a career can fall to godfather role via the CareerSystem from sim-core
+    // Test that a career can fall to godfather role via the CareerSystem exported from sim-core
     const { CareerSystem } = await import('../sim-core')
     const career = new CareerSystem('lgachairman', 'local/chairman')
 
