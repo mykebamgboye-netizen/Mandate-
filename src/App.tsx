@@ -190,47 +190,6 @@ function decStatus(dec: Decision, p: Persist, pack: Pack): { done: boolean; choi
   return { done: true, choice: opt?.label, ledger: opt?.ledger }
 }
 
-/* ---------- tray card ---------- */
-function TrayCard({ doc, mark, decided, pending, weathered, onOpen }: {
-  doc: Doc; mark?: DocMarkState; decided: boolean; pending: boolean; weathered: boolean; onOpen: () => void
-}) {
-  const stamped = mark?.stamps[0]
-  const acted = Boolean(stamped || (mark?.annotations.length ?? 0) > 0 || decided)
-  const status = stamped ? `STAMPED ${stamped.label}`
-    : decided ? 'DECIDED'
-    : pending ? 'DECISION DUE'
-    : (mark?.annotations.length ?? 0) > 0 ? 'ANNOTATED'
-    : doc.mark === 'urgent' ? 'NEEDS YOUR HAND'
-    : doc.mark === 'forwarded' ? 'FORWARDED' : 'UNTOUCHED'
-  /* a coffee ring is a record of thinking — it only shows once a file has held you a while */
-  const stain = weathered ? doc.stain : 'none'
-  return (
-    <button className={`paper-card stock-${doc.stock}`} onClick={onOpen}>
-      {doc.clip === 'binder' && (
-        <svg className="pc-clip" width="56" height="30" viewBox="0 0 74 46" aria-hidden>
-          <rect x="8" y="14" width="58" height="26" rx="4" fill="#C9C4BC" stroke="#5c5852" strokeWidth="2" />
-          <path d="M20 15 V8 a5 5 0 0 1 5-5 h24 a5 5 0 0 1 5 5 v7" fill="none" stroke="#5c5852" strokeWidth="3" />
-          <rect x="8" y="14" width="58" height="7" fill="#8f8a82" />
-        </svg>
-      )}
-      {doc.clip === 'paperclip' && (
-        <svg className="pc-clip paperclip" width="26" height="56" viewBox="0 0 34 74" aria-hidden>
-          <path d="M10 60 V16 a8 8 0 0 1 16 0 v44 a12 12 0 0 1-24 0 V20"
-            fill="none" stroke="#7d7d7d" strokeWidth="3.4" strokeLinecap="round" />
-        </svg>
-      )}
-      <span className="pc-date">{doc.date}</span>
-      <div className="pc-title">{doc.title}</div>
-      <p className="pc-line">{doc.trayLine}</p>
-      {doc.mark === 'urgent' && !acted && <span className="pc-mark urgent">← urgent</span>}
-      {stain === 'ring' && <span className="pc-ring" />}
-      {stain === 'coffee' && <span className="pc-coffee" />}
-      {doc.mark === 'forwarded' && <span className="pc-fold" />}
-      <span className={`pc-status${acted ? ' done' : ''}`}>{status}</span>
-    </button>
-  )
-}
-
 /* ---------- Briefings: the Situation Desk (390×844 mobile-first) ---------- */
 const DESK_HOURS_TOTAL = 14
 
@@ -242,17 +201,11 @@ function DeskScreen({ p, pack, onOpen, ticking, onCloseWeek }: {
     const base = [...pack.docs, ...pack.extras].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
     return p.handoverDone ? base : [pack.handover, ...base]
   }, [pack, p.handoverDone])
-  const urgentOpen = docs.filter(d =>
-    d.mark === 'urgent' &&
-    !p.marks[d.id]?.stamps.length &&
-    !pack.decisions.some(x => x.docId === d.id && decStatus(x, p, pack).done),
-  ).length
   const decisionHours = pack.decisions.reduce((sum, d) => sum + (decStatus(d, p, pack).done ? d.hours : 0), 0)
   const hoursSpent = decisionHours + (p.glossQuarters ?? 0) / 4
   const hoursLeft = Math.max(0, DESK_HOURS_TOTAL - hoursSpent)
   const wholeLeft = Math.floor(hoursLeft + 1e-9)
   const frac = ['', '¼', '½', '¾'][Math.round((hoursLeft - wholeLeft) * 4)] ?? ''
-  const weathered = p.weathered ?? []
   return (
     <>
       <header className="desk-head">
@@ -890,11 +843,6 @@ export default function App() {
   const openDoc = (id: string) => setOpenId(id)
   const doc = pack && openId ? findDoc(pack, openId) : undefined
 
-  const openTab = (tab: 'files' | 'briefings' | 'allies' | 'budget') => {
-    if (tab === 'briefings') setTab('briefings')
-    else setTab(tab) // files | allies | budget
-  }
-
   const setMark = (id: string, m: DocMarkState) =>
     setPersist(p => ({ ...p, marks: { ...p.marks, [id]: m } }))
 
@@ -937,16 +885,6 @@ export default function App() {
     literacy,
     setLiteracy,
   }
-
-  const screens: Record<Tab, React.ReactNode> = pack
-    ? {
-      briefings: <DeskScreen p={persist} pack={pack} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
-      allies: <AlliesScreen pack={pack} onOpen={openDoc} />,
-      decisions: <DecisionsScreen p={persist} pack={pack} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} />,
-      budget: <BudgetScreen pack={pack} />,
-      files: <FilesScreen p={persist} pack={pack} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
-    }
-    : ({} as Record<Tab, React.ReactNode>)
 
   const tabbar = (
     <nav className="tabbar" aria-label="Desk sections">
