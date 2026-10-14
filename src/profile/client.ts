@@ -316,18 +316,28 @@ export async function createProfile(input: {
   // authenticated user's id — not a DB-generated uuid that would silently make the
   // player's own profile invisible to them on the next read.
   const rowId = input.authUserId ?? undefined
+  /* Upsert on the account's id rather than a bare insert: re-running the wizard rewrites the
+     same player's row instead of dying on a duplicate-key error (23505), which is the one
+     failure a player can reproduce by completing onboarding twice. */
   const { data, error } = await client
     .from('profiles')
-    .insert({
-      ...(rowId ? { id: rowId } : {}),
-      handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
-      identity: input.identity,
-      office: input.office,
-      party: input.party,
-      axes,
-      powers: input.powers ?? [],
-      patronageBank: input.patronageBank ?? 0,
-    })
+    .upsert(
+      {
+        ...(rowId ? { id: rowId } : {}),
+        handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
+        identity: input.identity,
+        office: input.office,
+        party: input.party,
+        axes,
+        powers: input.powers ?? [],
+        // snake_case on the wire: the table column is patronage_bank, and a camelCase key
+        // comes back as PGRST204 ("column profiles.patronageBank does not exist") — which is
+        // the failure that surfaced on the onboarding sheet as "[object Object]".
+        patronage_bank: input.patronageBank ?? 0,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id', ignoreDuplicates: false },
+    )
     .select()
     .single()
   if (error) throw error
@@ -351,10 +361,7 @@ export async function updateProfile(
   }
   const { data, error } = await client
     .from('profiles')
-    .update({
-      ...patch,
-      updatedAt: new Date().toISOString(),
-    })
+    .update(profileRowPatch(patch))
     .eq('id', id)
     .eq('deleted_at', null)
     .select()
@@ -368,9 +375,29 @@ export async function softDeleteProfile(id: string): Promise<void> {
   if (!client) return
   const { error } = await client
     .from('profiles')
-    .update({ deletedAt: new Date().toISOString() })
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+/**
+ * The Profile type is camelCase; the profiles table is snake_case. Every patch is mapped
+ * here so no camelCase key can reach PostgREST and come back as PGRST204 — a plain object
+ * that a player would otherwise read as "[object Object]".
+ */
+function profileRowPatch(
+  patch: Partial<Pick<Profile, 'handle' | 'identity' | 'office' | 'party' | 'axes' | 'powers' | 'patronageBank'>>,
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {}
+  if (patch.handle !== undefined) row.handle = patch.handle
+  if (patch.identity !== undefined) row.identity = patch.identity
+  if (patch.office !== undefined) row.office = patch.office
+  if (patch.party !== undefined) row.party = patch.party
+  if (patch.axes !== undefined) row.axes = patch.axes
+  if (patch.powers !== undefined) row.powers = patch.powers
+  if (patch.patronageBank !== undefined) row.patronage_bank = patch.patronageBank
+  row.updated_at = new Date().toISOString()
+  return row
 }
 
 // ---- Patronage network (owned by profile) ----

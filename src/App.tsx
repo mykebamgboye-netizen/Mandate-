@@ -23,7 +23,8 @@ import {
 } from './profile/client'
 import type { Profile } from './profile'
 import { JurisdictionStep, PostStep, ReviewStep, WhoStep } from './onboarding-steps'
-import { signOut } from './profile/auth'
+import { getSession, signOut } from './profile/auth'
+import { shortError } from './profile/errors'
 import { AuthSheet, handleAuthSubmit } from './profile/auth-sheet'
 import { GameContext, DEFAULT_SETTINGS, FALLBACK_SCENARIO, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
@@ -1096,6 +1097,17 @@ export default function App() {
         0,
       )
       profile.patronageBank = profile.axes.patronageBank
+      /* The cloud write is a sync, not a gate: the record is already on this phone and the desk
+         is built from it. So check first that this device actually holds a signed-in session —
+         writing profiles without one is rejected by row-level security, and that rejection is
+         what used to strand the player on the last onboarding screen. */
+      const { data: sessionData, error: sessionError } = await getSession()
+      if (sessionError || !sessionData?.session) {
+        console.error('no session for the cloud save', sessionError)
+        setOnboarding(o => (o ? { ...o, phase: 'entering-desk' } : null))
+        showToast('YOUR FILE IS ON THIS PHONE — SIGN IN AGAIN TO SYNC IT')
+        return
+      }
       await createProfile({
         handle: s.name?.trim() || authUserId,
         identity: profile.identity,
@@ -1109,7 +1121,12 @@ export default function App() {
       setOnboarding(o => (o ? { ...o, phase: 'entering-desk' } : null))
       showToast('YOUR FILE IS SAVED — IT TRAVELS WITH YOU')
     } catch (err) {
-      setOnboarding(o => (o ? { ...o, error: 'Could not save your file: ' + String(err) } : null))
+      /* Never String(err): Supabase rejects with a plain object, which reads as
+         "[object Object]". Say what failed in words, and still let the player in — the record
+         is on this device either way. */
+      console.error('cloud save failed', err)
+      setOnboarding(o => (o ? { ...o, phase: 'entering-desk' } : null))
+      showToast(`YOUR FILE IS ON THIS PHONE — CLOUD SAVE FAILED: ${shortError(err)}`)
     }
   }
 
