@@ -53,9 +53,15 @@ describe('first-open boot does not serve the NPC as the player record', () => {
     // The offline reference carries Delta plus the FCT — the FCT is the President's seat
     // and the territory the Minister administers, so nationwide/FCT posts resolve without
     // a migrated federation_states row. These are reference data, not the player's identity.
-    expect(on.states.map(s => s.code)).toEqual(['DT', 'FC'])
+    // The offline reference is the canonical 36 states + the FCT (mirrors 001a seed), so a
+    // governor can be chosen for any state and a President/FCT Minister still resolve.
+    expect(on.states).toHaveLength(37)
+    expect(on.states.map(s => s.code)).toContain('DT')
+    expect(on.states.map(s => s.code)).toContain('FC')
     expect(on.states.find(s => s.code === 'FC')!.name).toBe('Federal Capital Territory')
-    expect(on.offices).toContainEqual(DELTA_TUTORIAL_OFFICE)
+    // The merged reference now carries the playable flag on the Governor row (see
+    // ensureReferenceOffices), so compare by identity rather than exact object equality.
+    expect(on.offices.map(o => o.id)).toContain(DELTA_TUTORIAL_OFFICE.id)
   })
 
   it('the fallback scenario row is Delta governor, but the player still starts blank', () => {

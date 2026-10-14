@@ -12,18 +12,17 @@ import {
 
 import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState, prologueAxes } from './profile/onboarding'
 import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
-import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
-import type { FederationLga, FederationOffice, FederationState, ProfileIdentity, ProfileOffice, ProfileParty } from './profile/types'
+import type { ProfileIdentity, ProfileOffice, ProfileParty } from './profile/types'
 import { normalizeAxes } from './profile/schema'
 import {
   supabaseConfigured,
-  listLgas,
   defaultFederationReference,
   createProfile,
   findProfileById,
 } from './profile/client'
+import { JurisdictionStep, PostStep, ReviewStep, WhoStep } from './onboarding-steps'
 import { signOut } from './profile/auth'
-import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
+import { DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
 import { AuthSheet, handleAuthSubmit } from './profile/auth-sheet'
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
@@ -492,330 +491,6 @@ function FilesScreen({ p, onOpen, onOpenDrawer }: {
 }
 
 
-// ---- onboarding step components (first-open shell) ----
-
-function PickStateStep({ states, stateCode, onState, onBack, sub }: {
-  states: import('./profile').FederationState[]
-  stateCode: string | null
-  onState: (code: string) => void
-  onBack: () => void
-  sub?: string
-}) {
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">{sub ?? 'Pick the state you will govern. The 36 states, or the FCT as its Minister.'}</div>
-      <div className="ob-state-list">
-        {states.map((s: FederationState) => (
-          <button
-            key={s.code}
-            className={`ob-state${stateCode === s.code ? ' selected' : ''}`}
-            onClick={() => onState(s.code)}
-          >
-            <div className="ob-state-name">{s.name}</div>
-            <div className="ob-state-meta">{s.capital} · {s.tier === 'fct' ? 'FCT' : 'State'}</div>
-          </button>
-        ))}
-      </div>
-      {stateCode && (
-        <button className="ob-again" onClick={() => onState('')}>choose a different state</button>
-      )}
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back</button>
-      </div>
-    </div>
-  )
-}
-
-/* ---------- post picker: only offices the catalogue marks playable (§federation) ---------- */
-function PostStep({ offices, onPost, onBack }: {
-  offices: FederationOffice[]
-  onPost: (office: FederationOffice) => void
-  onBack: () => void
-}) {
-  const groups = TIER_ORDER
-    .map(tier => ({ tier, items: offices.filter(o => o.tier === tier) }))
-    .filter(g => g.items.length > 0)
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">Pick the office you will hold. The constitution fixes what it can do — the rest is yours.</div>
-      {groups.map(g => (
-        <div className="ob-post-group" key={g.tier}>
-          <div className="ob-choices-label">{TIER_LABEL[g.tier] ?? g.tier}</div>
-          <div className="ob-state-list">
-            {g.items.map(o => (
-              <button key={o.id} className="ob-state" onClick={() => onPost(o)}>
-                <div className="ob-state-name">{o.post}</div>
-                <div className="ob-state-meta">{o.route.toUpperCase()} · {o.jurisdiction.replace(/_/g, ' ').toUpperCase()}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back to the desk</button>
-      </div>
-    </div>
-  )
-}
-
-/* ---------- LGA step: only the Chairman tier needs a third-level jurisdiction ---------- */
-function LgaStep({ state, onLga, onBack }: {
-  state: import('./profile').FederationState
-  onLga: (lga: FederationLga) => void
-  onBack: () => void
-}) {
-  const [lgas, setLgas] = useState<FederationLga[] | null>(null)
-  const [query, setQuery] = useState('')
-  useEffect(() => {
-    let live = true
-    listLgas(state.code)
-      .then(rows => { if (live) setLgas(rows) })
-      .catch(() => { if (live) setLgas([]) })
-    return () => { live = false }
-  }, [state.code])
-  const needle = query.trim().toLowerCase()
-  const shown = (lgas ?? []).filter(l => l.name.toLowerCase().includes(needle))
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">
-        {state.tier === 'fct'
-          ? 'Which area council? The FCT runs six — the third tier under the territory.'
-          : `Which local government? ${state.name} council — the third tier, funded through the state joint account.`}
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">FILTER</label>
-        <input
-          className="ob-input" value={query} onChange={e => setQuery(e.target.value)}
-          placeholder="start typing a council name"
-        />
-      </div>
-      {lgas === null ? (
-        <div className="ob-sub">Reading the council register…</div>
-      ) : shown.length === 0 ? (
-        <div className="ob-sub">No council matches “{query}”.</div>
-      ) : (
-        <div className="ob-state-list">
-          {shown.map(l => (
-            <button key={l.id} className="ob-state" onClick={() => onLga(l)}>
-              <div className="ob-state-name">{l.name}</div>
-              <div className="ob-state-meta">{state.name} · {state.tier === 'fct' ? 'AREA COUNCIL' : 'LGA'}</div>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back</button>
-      </div>
-    </div>
-  )
-}
-
-/* ---------- the jurisdiction line for the identity / prologue steps ----------
-   A nationwide post stands for the Federation, an appointed Minister runs the FCT itself,
-   a Governor runs a state, and a Chairman runs a council within it. */
-function postLineFor(office: { post: string; tier: string }, stateName: string): string {
-  const post = office.post.toUpperCase()
-  if (office.tier === 'federal') return `${post} OF THE FEDERATION`
-  if (office.tier === 'fct') return post
-  return `${post} OF ${stateName.toUpperCase()}`
-}
-
-/* ---------- blank-first identity form ----------
-   The player types their own record. Nothing here is pre-filled from an NPC; the Delta
-   tutorial is only the scenario you land in AFTER you have chosen office + identity. */
-function IdentityStep({ stateName, office, name, age, pronouns, locale, bio, altName, setName, setAge, setPronouns, setLocale, setBio, setAltName, onDone, onBack }: {
-  stateName: string
-  office: import('./profile').FederationOffice
-  name: string
-  age: string
-  pronouns: string
-  locale: string
-  bio: string
-  altName: string
-  setName: (v: string) => void
-  setAge: (v: string) => void
-  setPronouns: (v: string) => void
-  setLocale: (v: string) => void
-  setBio: (v: string) => void
-  setAltName: (v: string) => void
-  onDone: () => void
-  onBack: () => void
-}) {
-  const postLine = postLineFor(office, stateName)
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">You picked {postLine}. Now choose who you are — this is your record, typed by you, not pulled from a file.</div>
-      <div className="ob-post">POST — {postLine}</div>
-      <div className="ob-field">
-        <label className="ob-label">NAME</label>
-        <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">AGE</label>
-        <input className="ob-input" type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 52" />
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">PRONOUNS</label>
-        <input className="ob-input" value={pronouns} onChange={e => setPronouns(e.target.value)} placeholder="e.g. he/him" />
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">PHONE LOCALE</label>
-        <input className="ob-input" value={locale} onChange={e => setLocale(e.target.value)} placeholder="e.g. +234" />
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">OTHER NAME</label>
-        <input className="ob-input" value={altName} onChange={e => setAltName(e.target.value)} placeholder="e.g. an alias, a former name" />
-      </div>
-      <div className="ob-field">
-        <label className="ob-label">BIO / NOTES</label>
-        <textarea className="ob-textarea" value={bio} onChange={e => setBio(e.target.value)} placeholder="optional — your own note to yourself" rows={4} />
-      </div>
-      <div className="ob-foot">
-        <button className="ob-done" disabled={!name.trim()} onClick={() => { onDone() }}>continue to my party</button>
-        <button className="ob-back" onClick={onBack}>back</button>
-      </div>
-    </div>
-  )
-}
-
-/* ---------- player-chosen party picker ----------
-   The player picks their own party before the prologue now. The godfather / grassroots /
-   technocrat step still shapes axes and patronage, but the party the desk travels under
-   is the player's choice, not an NPC's. */
-function PartyStep({ parties, partyCode, onParty, onDone, onBack }: {
-  parties: import('./profile').FederationParty[]
-  partyCode: string | null
-  onParty: (code: string) => void
-  onDone: () => void
-  onBack: () => void
-}) {
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">Pick the party you will travel under. The prologue still shapes who brought you — this is the banner you choose.</div>
-      <div className="ob-choices">
-        {parties.map((p: import('./profile').FederationParty) => (
-          <button key={p.code} className={`ob-choice${partyCode === p.code ? ' selected' : ''}`} onClick={() => onParty(p.code)}>
-            <div className="ob-choice-label">{p.name}</div>
-            <div className="ob-choice-sub">{p.note}</div>
-          </button>
-        ))}
-      </div>
-      <div className="ob-foot">
-        <button className="ob-done" disabled={!partyCode} onClick={() => { onDone() }}>continue to the prologue</button>
-        <button className="ob-back" onClick={onBack}>back</button>
-      </div>
-    </div>
-  )
-}
-
-function PrologueStep({ origin, bringer, scar, name, stateName, office, onOrigin, onBringer, onScar, onDone, onBack }: {
-  origin: 'civil-service' | 'party-youth' | 'business' | 'activist' | null
-  bringer: 'godfather' | 'grassroots' | 'technocrat' | null
-  scar: 'none' | 'contract-query' | 'protest' | null
-  name: string
-  stateName: string
-  office: import('./profile').FederationOffice
-  onOrigin: (o: 'civil-service' | 'party-youth' | 'business' | 'activist') => void
-  onBringer: (b: 'godfather' | 'grassroots' | 'technocrat') => void
-  onScar: (s: 'none' | 'contract-query' | 'protest') => void
-  onDone: () => void
-  onBack: () => void
-}) {
-  /* The FCT has no governorship (s.299): its post is the appointed ministership, and the
-     territory is not named after the office the way a state is. */
-  const postLine = postLineFor(office, stateName)
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
-      <div className="ob-post">POST — {postLine}</div>
-      <div className="ob-choices">
-        <div className="ob-choices-label">Where did you come from?</div>
-        {ORIGINS.map((o: typeof ORIGINS[number]) => (
-          <button key={o.id} className={`ob-choice${origin === o.id ? ' selected' : ''}`} onClick={() => onOrigin(o.id)}>
-            <div className="ob-choice-label">{o.label}</div>
-            <div className="ob-choice-sub">{o.sub}</div>
-          </button>
-        ))}
-      </div>
-      <div className="ob-choices">
-        <div className="ob-choices-label">Who brought you?</div>
-        {BRINGERS.map((b: typeof BRINGERS[number]) => (
-          <button key={b.id} className={`ob-choice${bringer === b.id ? ' selected' : ''}`} onClick={() => onBringer(b.id)}>
-            <div className="ob-choice-label">{b.label}</div>
-            <div className="ob-choice-sub">{b.sub}</div>
-          </button>
-        ))}
-      </div>
-      <div className="ob-choices">
-        <div className="ob-choices-label">Your first scar?</div>
-        {FIRST_SCARS.map((s: typeof FIRST_SCARS[number]) => (
-          <button key={s.id} className={`ob-choice${scar === s.id ? ' selected' : ''}`} onClick={() => onScar(s.id)}>
-            <div className="ob-choice-label">{s.label}</div>
-            <div className="ob-choice-sub">{s.sub}</div>
-          </button>
-        ))}
-      </div>
-      <div className="ob-foot">
-        <button
-          className="ob-done"
-          disabled={!origin || !bringer || !scar}
-          onClick={() => { onDone() }}
-        >review your record</button>
-        <button className="ob-back" onClick={onBack}>back</button>
-      </div>
-    </div>
-  )
-}
-
-function ProfileSheetStep({ sheet, onAccept, onBack }: {
-  sheet: import('./profile').ProfileSheet
-  onAccept: () => void
-  onBack: () => void
-}) {
-  return (
-    <div className="ob-step">
-      <div className="ob-sub">Your record — INFORMANCE CF001 + security vetting. Signing this begins your life.</div>
-      <div className="ob-sheet">
-        <div className="ob-sheet-row"><span className="ob-sheet-k">NAME</span><span className="ob-sheet-v">{sheet.name}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">HANDLE</span><span className="ob-sheet-v">{sheet.handle}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">{sheet.stateLabel}</span><span className="ob-sheet-v">{sheet.state} ({sheet.capital})</span></div>
-        {sheet.lga && <div className="ob-sheet-row"><span className="ob-sheet-k">LGA</span><span className="ob-sheet-v">{sheet.lga}</span></div>}
-        {sheet.district && <div className="ob-sheet-row"><span className="ob-sheet-k">SENATORIAL DISTRICT</span><span className="ob-sheet-v">{sheet.district}</span></div>}
-        <div className="ob-sheet-row"><span className="ob-sheet-k">AGE</span><span className="ob-sheet-v">{sheet.age}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">OFFICE</span><span className="ob-sheet-v">{sheet.office} · {sheet.post} · {sheet.route}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">PARTY</span><span className="ob-sheet-v">{sheet.party} · defection risk {sheet.defectionRisk}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">PATRONAGE BANK</span><span className="ob-sheet-v">{sheet.patronageBank}</span></div>
-        <div className="ob-sheet-axes">
-          {sheet.axes.map((a: { label: string; value: string; band: string }, i: number) => (
-            <div key={i} className="ob-axis">
-              <span className={`ob-axis-band ${a.band.toLowerCase()}`}>{a.band}</span>
-              <span className="ob-axis-label">{a.label}</span>
-              <span className="ob-axis-value">{a.value}</span>
-            </div>
-          ))}
-        </div>
-        {sheet.patrons.length > 0 && (
-          <div className="ob-patrons">
-            <div className="ob-patrons-label">Patronage network</div>
-            {sheet.patrons.map((p: { name: string; role: string; loyalty: string }, i: number) => (
-              <div key={i} className="ob-patron">
-                <span className="ob-patron-name">{p.name}</span>
-                <span className="ob-patron-role">{p.role}</span>
-                <span className="ob-patron-loyalty">loyalty {p.loyalty}/5</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="ob-foot">
-        <button className="ob-accept" onClick={onAccept}>accept and enter the desk</button>
-        <button className="ob-back" onClick={onBack}>revise my record</button>
-      </div>
-    </div>
-  )
-}
-
-
 /* ---------- root ---------- */
 function useExpanded(): boolean {
   const query = '(min-width: 1100px)'
@@ -947,7 +622,7 @@ export default function App() {
   const [persist, setPersist] = useState<Persist>(load)
 
   // ---- first-open gate: profile + onboarding (Supabase-backed when configured) ----
-  type OnboardingPhase = 'none' | 'pick-post' | 'pick-identity' | 'pick-state' | 'pick-lga' | 'pick-party' | 'prologue' | 'profile-sheet' | 'entering-desk'
+  type OnboardingPhase = 'none' | 'pick-post' | 'pick-state' | 'who' | 'profile-sheet' | 'entering-desk'
   const [onboarding, setOnboarding] = useState<{
     phase: OnboardingPhase
     states: import('./profile').FederationState[]
@@ -1355,11 +1030,67 @@ export default function App() {
     }
   }
 
-  /* The onboarding shell title tracks the step: a new file, an identity, or the record. */
-  const obTitle = !onboarding ? 'NEW FILE — CHOOSE YOUR POST'
-    : onboarding.phase === 'profile-sheet' ? 'YOUR RECORD — SIGN IT OR REVISE IT'
-    : onboarding.phase === 'pick-post' ? 'NEW FILE — CHOOSE YOUR POST'
-    : 'NEW FILE — WHO ARE YOU'
+  /* The wizard's step rail: direct posts skip the jurisdiction screen, so their file is
+     3 steps rather than 4. */
+  const obOffice = onboarding?.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE
+  const obRoute = postRoute(obOffice)
+  const obNeedsJurisdiction = obRoute.kind === 'state' || obRoute.kind === 'state-then-lga'
+  const obTotal = obNeedsJurisdiction ? 4 : 3
+  const obStep = !onboarding || onboarding.phase === 'pick-post' ? 1
+    : onboarding.phase === 'pick-state' ? 2
+    : onboarding.phase === 'profile-sheet' ? obTotal
+    : obNeedsJurisdiction ? 3 : 2
+  const obStateObj = onboarding?.states.find(s => s.code === onboarding.stateCode)
+  const obStateName = obStateObj?.name ?? 'the Federation'
+  const obStateFull = obStateObj && obStateObj.tier === 'state' ? `${obStateObj.name} State` : obStateName
+  const obMeta = onboarding?.sheet
+    ? obOffice.jurisdiction === 'nation'
+      ? `Age ${onboarding.sheet.age} • ${obOffice.post} — the Federation`
+      : obOffice.tier === 'fct'
+        ? `Age ${onboarding.sheet.age} • ${obOffice.post} — ${onboarding.sheet.capital}`
+        : `Age ${onboarding.sheet.age} • ${obOffice.post} — ${onboarding.lgaName ? onboarding.lgaName + ', ' : ''}${obStateFull}`
+    : ''
+
+  /* Accept writes the record (Supabase when configured, local otherwise) and enters the desk. */
+  const obAccept = async () => {
+    const s = onboarding
+    if (!s || s.phase !== 'profile-sheet' || !s.sheet) return
+    const authUserId = persist.profileHandle
+    if (!authUserId || !supabaseConfigured()) {
+      setOnboarding(o => (o ? { ...o, phase: 'entering-desk' } : null))
+      return
+    }
+    try {
+      const profile = profileFromOnboarding(s)
+      if (!profile) {
+        setOnboarding(o => (o ? { ...o, error: 'Office not found.' } : null))
+        return
+      }
+      const base = normalizeAxes({ patronageBank: OPENING_BALANCE })
+      profile.axes = prologueAxes(
+        base,
+        ORIGINS.find(o => o.id === s.origin)!.deltas,
+        BRINGERS.find(b => b.id === s.bringer)!.deltas,
+        FIRST_SCARS.find(sc => sc.id === s.scar)!.deltas,
+        0,
+      )
+      profile.patronageBank = profile.axes.patronageBank
+      await createProfile({
+        handle: s.name?.trim() || authUserId,
+        identity: profile.identity,
+        office: profile.office,
+        party: profile.party,
+        axes: profile.axes,
+        powers: s.offices.find(o => o.id === s.officeId)?.powers ?? [],
+        patronageBank: profile.patronageBank,
+        authUserId,
+      })
+      setOnboarding(o => (o ? { ...o, phase: 'entering-desk' } : null))
+      showToast('YOUR FILE IS SAVED — IT TRAVELS WITH YOU')
+    } catch (err) {
+      setOnboarding(o => (o ? { ...o, error: 'Could not save your file: ' + String(err) } : null))
+    }
+  }
 
   const surface = (
     <>
@@ -1367,7 +1098,7 @@ export default function App() {
       {showAuthSheet ? (
         <main className="app-main" key="auth">
           <div className="zoom-layer">
-            <div className="onboarding-shell">
+            <div className="onboarding-shell ob-auth">
               <h1 className="ob-title">CLAIM YOUR FILE</h1>
               <AuthSheet
                 email={authEmail}
@@ -1410,148 +1141,74 @@ export default function App() {
           </div>
         </main>
       ) : onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk' ? (
-        <main className="app-main" key="onboarding">
+        <main className="app-main ob-main" key="onboarding">
           <div className="zoom-layer">
             <div className="onboarding-shell">
-              <h1 className="ob-title">{obTitle}</h1>
-              {onboarding.error ? (
-                <div className="ob-error">{onboarding.error}</div>
-              ) : onboarding.phase === 'pick-post' ? (
+              {onboarding.error ? <div className="ob-error">{onboarding.error}</div> : null}
+              {onboarding.phase === 'pick-post' ? (
                 <PostStep
                   offices={selectableOffices(onboarding.offices)}
-                  onPost={office => setOnboarding(o => {
-                    if (!o) return null
-                    const route = postRoute(office)
-                    if (route.kind === 'direct') {
-                      // appointed/nationwide posts need no jurisdiction step (FCT seat = Abuja) —
-                      // but the player still names themselves and picks a party before the prologue.
-                      return { ...o, phase: 'pick-identity', officeId: office.id, stateCode: route.stateCode, lgaName: null }
-                    }
-                    return { ...o, phase: 'pick-state', officeId: office.id, stateCode: null, lgaName: null }
-                  })}
+                  officeId={onboarding.officeId}
+                  step={obStep} total={obTotal}
                   onBack={() => setOnboarding(null)}
+                  onPick={o => setOnboarding(s => (s ? { ...s, officeId: o.id, stateCode: null, lgaName: null } : null))}
+                  onContinue={() => setOnboarding(s => {
+                    if (!s) return null
+                    const picked = s.offices.find(o => o.id === s.officeId)
+                    if (!picked) return s
+                    const r = postRoute(picked)
+                    if (r.kind === 'direct') return { ...s, phase: 'who' as const, stateCode: r.stateCode, lgaName: null }
+                    return { ...s, phase: 'pick-state' as const, stateCode: null, lgaName: null }
+                  })}
                 />
               ) : onboarding.phase === 'pick-state' ? (
-                <PickStateStep
-                  states={stateChoicesFor(
-                    onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE,
-                    onboarding.states,
-                  )}
+                <JurisdictionStep
+                  office={obOffice}
+                  states={stateChoicesFor(obOffice, onboarding.states)}
                   stateCode={onboarding.stateCode}
-                  sub={onboarding.officeId === 'local/chairman'
-                    ? 'Which state is your council in? The 774 LGAs sit under the 36 states; the FCT runs six area councils of its own.'
-                    : onboarding.officeId === 'state/governor'
-                      ? 'Pick the state you will govern. The 36 states — the FCT has no governorship (s.299).'
-                      : undefined}
-                  onState={stateCode => setOnboarding(o => {
-                    if (!o) return null
-                    const office = o.offices.find(x => x.id === o.officeId)
-                    const route = office ? postRoute(office) : null
-                    if (route?.kind === 'state-then-lga') {
-                      return { ...o, phase: 'pick-lga', stateCode }
-                    }
-                    return { ...o, phase: 'pick-identity', stateCode }
-                  })}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', stateCode:null, lgaName:null} : null))}
+                  lgaName={onboarding.lgaName}
+                  step={obStep} total={obTotal}
+                  onBack={() => setOnboarding(s => (s ? { ...s, phase: 'pick-post' as const, stateCode: null, lgaName: null } : null))}
+                  onPickState={code => setOnboarding(s => (s ? { ...s, stateCode: code, lgaName: null } : null))}
+                  onPickLga={lga => setOnboarding(s => (s ? { ...s, stateCode: lga ? lga.stateCode : null, lgaName: lga ? lga.name : null } : null))}
+                  onContinue={() => setOnboarding(s => (s ? { ...s, phase: 'who' as const } : null))}
                 />
-              ) : onboarding.phase === 'pick-lga' ? (
-                <LgaStep
-                  state={onboarding.states.find(s => s.code === onboarding.stateCode) ?? DELTA_TUTORIAL_STATE}
-                  onLga={lga => setOnboarding(o => (o ? {...o, phase:'pick-identity', stateCode: lga.stateCode, lgaName: lga.name} : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', lgaName:null} : null))}
-                />
-              ) : onboarding.phase === 'pick-identity' ? (
-                <IdentityStep
-                  stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
-                  office={onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE}
+              ) : onboarding.phase === 'who' ? (
+                <WhoStep
+                  office={obOffice}
+                  stateName={obStateName}
                   name={onboarding.name}
                   age={onboarding.age}
                   pronouns={onboarding.pronouns}
                   locale={onboarding.locale}
-                  bio={onboarding.bio}
                   altName={onboarding.altName}
-                  setName={v => setOnboarding(o => (o ? {...o, name: v} : null))}
-                  setAge={v => setOnboarding(o => (o ? {...o, age: v} : null))}
-                  setPronouns={v => setOnboarding(o => (o ? {...o, pronouns: v} : null))}
-                  setLocale={v => setOnboarding(o => (o ? {...o, locale: v} : null))}
-                  setBio={v => setOnboarding(o => (o ? {...o, bio: v} : null))}
-                  setAltName={v => setOnboarding(o => (o ? {...o, altName: v} : null))}
-                  onDone={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
-                  onBack={() => setOnboarding(o => {
-                    if (!o) return null
-                    const office = o.offices.find(x => x.id === o.officeId)
-                    const route = office ? postRoute(office) : null
-                    if (route?.kind === 'state') return { ...o, phase: 'pick-state' as const }
-                    if (route?.kind === 'state-then-lga') return { ...o, phase: 'pick-lga' as const }
-                    return { ...o, phase: 'pick-post' as const, officeId: null, stateCode: null, lgaName: null }
-                  })}
-                />
-              ) : onboarding.phase === 'pick-party' ? (
-                <PartyStep
-                  parties={onboarding.parties}
+                  bio={onboarding.bio}
                   partyCode={onboarding.partyCode}
-                  onParty={code => setOnboarding(o => (o ? {...o, partyCode: code} : null))}
-                  onDone={() => setOnboarding(o => (o ? {...o, phase:'prologue'} : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
-                />
-              ) : onboarding.phase === 'prologue' ? (
-                <PrologueStep
+                  parties={onboarding.parties}
                   origin={onboarding.origin}
                   bringer={onboarding.bringer}
                   scar={onboarding.scar}
-                  name={onboarding.name}
-                  stateName={onboarding.states.find(s => s.code === onboarding.stateCode)?.name ?? 'State'}
-                  office={onboarding.offices.find(o => o.id === onboarding.officeId) ?? DELTA_TUTORIAL_OFFICE}
-                  onOrigin={id => setOnboarding(o => (o ? {...o, origin: id} : null))}
-                  onBringer={id => setOnboarding(o => (o ? {...o, bringer: id} : null))}
-                  onScar={id => setOnboarding(o => (o ? {...o, scar: id} : null))}
-                  onDone={() => setOnboarding(o => (o ? nextSheetState(o as import('./profile').OnboardingState) : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
+                  step={obStep} total={obTotal}
+                  onField={(field, value) => setOnboarding(s => (s ? { ...s, [field]: value } : null))}
+                  onParty={code => setOnboarding(s => (s ? { ...s, partyCode: code } : null))}
+                  onOrigin={id => setOnboarding(s => (s ? { ...s, origin: id } : null))}
+                  onBringer={id => setOnboarding(s => (s ? { ...s, bringer: id } : null))}
+                  onScar={id => setOnboarding(s => (s ? { ...s, scar: id } : null))}
+                  onBack={() => setOnboarding(s => (s ? { ...s, phase: obNeedsJurisdiction ? 'pick-state' as const : 'pick-post' as const } : null))}
+                  onContinue={() => setOnboarding(s => {
+                    if (!s) return null
+                    const next = nextSheetState(s as import('./profile').OnboardingState)
+                    const phase: OnboardingPhase = next.error ? s.phase : 'profile-sheet'
+                    return { ...s, ...next, phase }
+                  })}
                 />
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
-                <ProfileSheetStep
+                <ReviewStep
                   sheet={onboarding.sheet}
-                  onAccept={async () => {
-                    const s = onboarding
-                    if (!s || s.phase !== 'profile-sheet' || !s.sheet) return
-                    const authUserId = persist.profileHandle
-                    if (!authUserId || !supabaseConfigured()) {
-                      setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))
-                      return
-                    }
-                    try {
-                      const profile = profileFromOnboarding(s)
-                      if (!profile) {
-                        setOnboarding(o => (o ? {...o, error: 'Office not found.'} : null))
-                        return
-                      }
-                      const base = normalizeAxes({ patronageBank: OPENING_BALANCE })
-                      profile.axes = prologueAxes(
-                        base,
-                        ORIGINS.find(o => o.id === s.origin)!.deltas,
-                        BRINGERS.find(b => b.id === s.bringer)!.deltas,
-                        FIRST_SCARS.find(sc => sc.id === s.scar)!.deltas,
-                        0,
-                      )
-                      profile.patronageBank = profile.axes.patronageBank
-                      await createProfile({
-                        handle: s.name?.trim() || authUserId,
-                        identity: profile.identity,
-                        office: profile.office,
-                        party: profile.party,
-                        axes: profile.axes,
-                        powers: s.offices.find(o => o.id === s.officeId)?.powers ?? [],
-                        patronageBank: profile.patronageBank,
-                        authUserId,
-                      })
-                      setOnboarding(o => (o ? {...o, phase:'entering-desk'} : null))
-                      showToast('YOUR FILE IS SAVED — IT TRAVELS WITH YOU')
-                    } catch (err) {
-                      setOnboarding(o => (o ? {...o, error: 'Could not save your file: ' + String(err)} : null))
-                    }
-                  }}
-                  /* revise: back to the post picker — the record you are revising starts with the office */
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', origin:null,bringer:null,scar:null,lgaName:null} : null))}
+                  meta={obMeta}
+                  step={obStep} total={obTotal}
+                  onBack={() => setOnboarding(s => (s ? { ...s, phase: 'who' as const } : null))}
+                  onAccept={obAccept}
                 />
               ) : null}
             </div>

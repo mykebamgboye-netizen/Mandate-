@@ -119,11 +119,21 @@ export function selectableOffices(offices: FederationOffice[]): FederationOffice
 /** The picker must never dead-end on a missing reference row: if the live
     federation_offices table has not been migrated yet (the FCT row ships in
     migration 002), merge the canonical definitions in so the chosen card still
-    resolves to a real office. */
+    resolves to a real office.
+
+    The merge also REPAIRS the playable flag. The offline reference already carries
+    Governor and FCT Minister, but without the flag migration 003 sets; appending only
+    the missing rows left the catalogue with a partial flag set, and selectableOffices —
+    which trusts the flag once any row carries it — then silently dropped half the cards
+    (you could not take the governorship at all). So prefer the canonical definition
+    whenever it marks an office playable and the row on hand does not. */
 export function ensureReferenceOffices(offices: FederationOffice[]): FederationOffice[] {
-  const have = new Set(offices.map(o => o.id))
-  const required = [...PLAYABLE_OFFICES, FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE]
-  return [...offices, ...required.filter(o => !have.has(o.id))]
+  const byId = new Map(offices.map(o => [o.id, o]))
+  for (const canonical of [...PLAYABLE_OFFICES, FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE]) {
+    const existing = byId.get(canonical.id)
+    if (!existing || (canonical.playable && !existing.playable)) byId.set(canonical.id, canonical)
+  }
+  return [...byId.values()]
 }
 
 export function nextPrologueState(s: OnboardingState): OnboardingState {

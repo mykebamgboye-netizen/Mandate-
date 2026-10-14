@@ -90,7 +90,7 @@ export const supabaseConfigured = (): boolean => {
 export async function listStates(): Promise<FederationState[]> {
   const client = publicClient()
   if (!client) {
-    return [DELTA_TUTORIAL_STATE]
+    return FEDERATION_STATES
   }
   const { data, error } = await client
     .from('federation_states')
@@ -110,7 +110,7 @@ export async function listStates(): Promise<FederationState[]> {
 export async function getStateByCode(code: string): Promise<FederationState | null> {
   const client = publicClient()
   if (!client) {
-    return DELTA_TUTORIAL_STATE.code === code ? DELTA_TUTORIAL_STATE : null
+    return FEDERATION_STATES.find(s => s.code === code) ?? null
   }
   const { data, error } = await client
     .from('federation_states')
@@ -585,8 +585,34 @@ export const FCT_STATE: FederationState = {
 /** When Supabase is absent, the onboarding shell falls back to the Delta tutorial scenario.
     The FCT is included as a real state-like entry so nationwide/FCT posts and any FCT
     selection at the state step resolve without requiring a migrated federation_states row. */
+/* The canonical 36 states + the FCT, mirroring 001a_seed_federation_states.sql, so the
+   offline picker offers the real federation rather than a single row. Delta keeps its
+   senatorial districts from the tutorial; the FCT keeps its tier. */
+const STATE_ROWS: [string, string, string][] = [
+  ['AB', 'Abia', 'Umuahia'], ['AD', 'Adamawa', 'Yola'], ['AK', 'Akwa Ibom', 'Uyo'],
+  ['AN', 'Anambra', 'Awka'], ['BA', 'Bauchi', 'Bauchi'], ['BY', 'Bayelsa', 'Yenagoa'],
+  ['BE', 'Benue', 'Makurdi'], ['BO', 'Borno', 'Maiduguri'], ['CR', 'Cross River', 'Calabar'],
+  ['DT', 'Delta', 'Asaba'], ['EB', 'Ebonyi', 'Abakaliki'], ['ED', 'Edo', 'Benin City'],
+  ['EK', 'Ekiti', 'Ado-Ekiti'], ['EN', 'Enugu', 'Enugu'], ['GO', 'Gombe', 'Gombe'],
+  ['IM', 'Imo', 'Owerri'], ['JI', 'Jigawa', 'Dutse'], ['KD', 'Kaduna', 'Kaduna'],
+  ['KN', 'Kano', 'Kano'], ['KT', 'Katsina', 'Katsina'], ['KE', 'Kebbi', 'Birnin Kebbi'],
+  ['KO', 'Kogi', 'Lokoja'], ['KW', 'Kwara', 'Ilorin'], ['LA', 'Lagos', 'Ikeja'],
+  ['NA', 'Nasarawa', 'Lafia'], ['NI', 'Niger', 'Minna'], ['OG', 'Ogun', 'Abeokuta'],
+  ['ON', 'Ondo', 'Akure'], ['OS', 'Osun', 'Osogbo'], ['OY', 'Oyo', 'Ibadan'],
+  ['PL', 'Plateau', 'Jos'], ['RI', 'Rivers', 'Port Harcourt'], ['SO', 'Sokoto', 'Sokoto'],
+  ['TA', 'Taraba', 'Jalingo'], ['YO', 'Yobe', 'Damaturu'], ['ZA', 'Zamfara', 'Gusau'],
+]
+
+export const FEDERATION_STATES: FederationState[] = [
+  ...STATE_ROWS.map(([code, name, capital]) =>
+    code === DELTA_TUTORIAL_STATE.code
+      ? DELTA_TUTORIAL_STATE
+      : { code, name, capital, tier: 'state' as const, zone: null, senatorialDistricts: null }),
+  FCT_STATE,
+]
+
 export const defaultFederationReference = {
-  states: [DELTA_TUTORIAL_STATE, FCT_STATE] as FederationState[],
+  states: FEDERATION_STATES,
   offices: [DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE] as FederationOffice[],
   parties: FALLBACK_PARTIES,
 }
