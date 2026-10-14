@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { executeDirtyTrick, createInitialSimState, createSectorControl } from './sim-core'
+import { executeDirtyTrick, createInitialSimState, createSectorControl } from '../sim-core'
 
 describe('dirty trick → EFCC probe → postless godfather path', () => {
   it('plant-story dirty trick triggers EFCC probe and moves approval', () => {
@@ -91,9 +91,9 @@ describe('dirty trick → EFCC probe → postless godfather path', () => {
     expect(mediaSystem.gazetteStories.length).toBeGreaterThan(0)
   })
 
-  it('career can fall to godfather role via scandal', () => {
-    // Test that a career can fall to godfather role via the CareerSystem exported from sim-core
-    const { CareerSystem } = await import('./sim-core')
+  it('career can fall to godfather role via scandal', async () => {
+    // Test that a career can fall to godfather role via the CareerSystem from sim-core
+    const { CareerSystem } = await import('../sim-core')
     const career = new CareerSystem('lgachairman', 'local/chairman')
 
     // Advance through levels until falling
