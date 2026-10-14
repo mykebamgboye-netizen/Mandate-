@@ -190,9 +190,9 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
           </span>
           <span className="dh-count">{wholeLeft}{frac} / {DESK_HOURS_TOTAL} LEFT — USE OR LOSE</span>
         </div>
-        <div className="desk-approval" aria-label={`Public Approval: ${persist.publicApproval ?? 50}%`}>
+        <div className="desk-approval" aria-label={`Public Approval: ${p.publicApproval ?? 50}%`}>
           <span className="da-label">PUBLIC APPROVAL</span>
-          <span className="da-value">{persist.publicApproval ?? 50}%</span>
+          <span className="da-value">{p.publicApproval ?? 50}%</span>
         </div>
         <div className="desk-deadlines">
           ASUU ultimatum 15 Oct · NLC window closes 20 Oct · FAAC drops 21 Oct

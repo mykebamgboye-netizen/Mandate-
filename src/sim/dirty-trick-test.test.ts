@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { executeDirtyTrick, createInitialSimState, advanceTurn, createSectorControl, CareerSystem } from './sim-core'
-import { ShockSystem, MediaSystem } from './sim-core'
+import { executeDirtyTrick, createInitialSimState, createSectorControl } from './sim-core'
 
 describe('dirty trick → EFCC probe → postless godfather path', () => {
   it('plant-story dirty trick triggers EFCC probe and moves approval', () => {
     const sectorControl = createSectorControl()
-    const shockSystem = new ShockSystem()
-    const mediaSystem = new MediaSystem()
+    const mediaSystem = { reporters: [], influencers: [], gazetteStories: [] } as any
 
     // Initialize state with Governor at 50% approval
     const state = createInitialSimState(sectorControl, 50, { faacCurrent: 100, inflation: 0, nairaValue: 1 })
@@ -31,7 +29,7 @@ describe('dirty trick → EFCC probe → postless godfather path', () => {
     const result = executeDirtyTrick('plant-story', {
       target: 'Governor',
       mediaSystem,
-      shockSystem,
+      shockSystem: { triggerShock: () => {} } as any,
       npcProfiles: state.npcProfiles,
       state,
     })
@@ -54,8 +52,7 @@ describe('dirty trick → EFCC probe → postless godfather path', () => {
 
   it('deepfake-rival dirty trick triggers EFCC probe', () => {
     const sectorControl = createSectorControl()
-    const shockSystem = new ShockSystem()
-    const mediaSystem = new MediaSystem()
+    const mediaSystem = { reporters: [], influencers: [], gazetteStories: [] } as any
 
     // Initialize state
     const state = createInitialSimState(sectorControl, 60, { faacCurrent: 100, inflation: 0, nairaValue: 1 })
@@ -79,7 +76,7 @@ describe('dirty trick → EFCC probe → postless godfather path', () => {
     const result = executeDirtyTrick('deepfake-rival', {
       target: 'Rival',
       mediaSystem,
-      shockSystem,
+      shockSystem: { triggerShock: () => {} } as any,
       npcProfiles: state.npcProfiles,
       state,
     })
@@ -94,9 +91,10 @@ describe('dirty trick → EFCC probe → postless godfather path', () => {
     expect(mediaSystem.gazetteStories.length).toBeGreaterThan(0)
   })
 
-  it('career can fall to godfather role via lost_primary', () => {
+  it('career can fall to godfather role via scandal', () => {
     // Test that a career can fall to godfather role
-    const career = new (await import('./sim-core')).CareerSystem('lgachairman', 'local/chairman')
+    const CareerSystem = (await import('./sim-core')).CareerSystem
+    const career = new CareerSystem('lgachairman', 'local/chairman')
 
     // Advance through levels until falling
     career.advanceLevel() // lgachairman -> stategovernor
