@@ -50,6 +50,7 @@ interface Persist {
   glossQuarters?: number
   /** optional link to a Supabase-backed player profile (v1: onboarding only) */
   profileHandle?: string
+  publicApproval?: number // 0-100, dynamic polling reflected on the desk
 }
 
 function load(): Persist {
@@ -60,7 +61,7 @@ function load(): Persist {
       if (p && typeof p === 'object' && p.marks && p.decisions) return p
     }
   } catch { /* corrupt store — start clean */ }
-  return { marks: {}, decisions: {} }
+  return { marks: {}, decisions: {}, publicApproval: 50 }
 }
 
 /* ---------- transfer slip: one-time export that burns the desk it left (§3.7) ---------- */
@@ -188,6 +189,10 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
             ))}
           </span>
           <span className="dh-count">{wholeLeft}{frac} / {DESK_HOURS_TOTAL} LEFT — USE OR LOSE</span>
+        </div>
+        <div className="desk-approval" aria-label={`Public Approval: ${persist.publicApproval ?? 50}%`}>
+          <span className="da-label">PUBLIC APPROVAL</span>
+          <span className="da-value">{persist.publicApproval ?? 50}%</span>
         </div>
         <div className="desk-deadlines">
           ASUU ultimatum 15 Oct · NLC window closes 20 Oct · FAAC drops 21 Oct
