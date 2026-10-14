@@ -14,6 +14,8 @@ import {
 } from './revenue'
 import { SCRIPTED_SCENARIOS, SHOCK_DECK, SHOCKS_PER_QUARTER, SHOCK_TYPES, pressureBrief } from './pressure'
 import { CAREER_FALLS, CAREER_LADDER, careerBrief, nextRung, rungFor } from './career'
+import { CORE_PRINCIPLES, TRACKS, principleBrief, principleFor, untrackedAxes } from './principles'
+import { AXIS_KEYS } from './profile/types'
 import { PLAYABLE_OFFICES } from './profile/playable-offices'
 
 const PLAYABLE_IDS = PLAYABLE_OFFICES.map((o) => o.id)
@@ -209,6 +211,38 @@ describe('the pressure model', () => {
     expect(gov.cannotControl).toEqual(['the oil price', 'the naira', 'ASUU'])
     // and the same seat's matrix agrees it cannot touch the police either
     expect(matrixFor('state/governor')!.cannotControl.map((c) => c.sector)).toContain('security')
+  })
+})
+
+describe('the four axioms', () => {
+  it('is the design’s own four, each naming what enforces it', () => {
+    expect(CORE_PRINCIPLES.map((p) => p.id)).toEqual([
+      'politics_governance',
+      'borrowed_power',
+      'relationship_memory',
+      'statehood',
+    ])
+    for (const p of CORE_PRINCIPLES) {
+      expect(p.label.length, p.id).toBeGreaterThan(0)
+      expect(p.line.length, p.id).toBeGreaterThan(0)
+      expect(p.enforcedBy.length, p.id).toBeGreaterThan(0)
+    }
+    expect(principleFor('borrowed_power')?.enforcedBy.join(' ')).toContain('cannotControl')
+    expect(principleFor('statehood')?.enforcedBy.join(' ')).toContain('SECTOR_IDS')
+  })
+
+  it('keeps politics and governance on separate, exhaustive tracks', () => {
+    const overlap = TRACKS.politics.filter((k) => TRACKS.governance.includes(k))
+    expect(overlap).toEqual([])
+    expect(untrackedAxes()).toEqual([])
+    expect([...TRACKS.politics, ...TRACKS.governance].sort()).toEqual([...AXIS_KEYS].sort())
+  })
+
+  it('prints them as the head of the desk brief', () => {
+    const brief = principleBrief()
+    expect(brief[0]).toBe('THE AXIOMS THIS DESK RUNS ON')
+    expect(brief).toHaveLength(5)
+    expect(brief.join(' ')).toContain('Politics ≠ Governance')
   })
 })
 

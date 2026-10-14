@@ -304,6 +304,7 @@ describe('the pack is whole at every tier', () => {
     expect(federal).toContain('YOU HOLD — Security')
 
     const governor = briefFor({})
+    expect(governor).toContain('THE AXIOMS THIS DESK RUNS ON')
     expect(governor).toContain('CANNOT TOUCH')
     expect(governor).toContain('the police — the CP answers to the IG, not to you')
     expect(governor).toContain('NEXT RUNG — President')

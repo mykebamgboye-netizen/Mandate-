@@ -18,6 +18,7 @@ import { postSectorBrief } from '../sectors'
 import { revenueBrief, verticalFormulaLine } from '../revenue'
 import { pressureBrief } from '../pressure'
 import { careerBrief } from '../career'
+import { principleBrief } from '../principles'
 import { PAYROLL_ANCHOR_STAFF, payrollStaff } from './money'
 import { PLACES } from './places'
 import { recordId } from './derive'
@@ -796,6 +797,7 @@ export function buildWeek(s: Scenario): Pack {
     re: 'WHAT THIS OFFICE HOLDS',
     lines: [
       `${w.officeTitle} — ${s.seat}. ${s.elected ? 'Elected: your mandate is a poll, and it can be petitioned.' : 'Appointed: your mandate is an instrument, and it can be revoked.'}`,
+      ...principleBrief(),
       ...postSectorBrief(s.input.officeId),
       ...revenueBrief(s.input.officeId),
       verticalFormulaLine(),
