@@ -57,6 +57,7 @@ export const DELTA_TUTORIAL_IDENTITY: DeskIdentity = {
   capital: 'Asaba',
   lga: null,
   party: 'CDM',
+  patrons: [],
   honorific: 'His Excellency',
   digestHead: 'DELTA STATE SECURITY DIGEST',
   pollsterTitle: 'SSA (Polling)',

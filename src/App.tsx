@@ -3,14 +3,15 @@
    renders view-models directly from the content pack. */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  DOCS, ASSET_DOCS, DECISIONS, ALLIES, BUDGET, OPENING_BALANCE, OPENING_NOTE,
-  WEEK, TERM, HANDOVER, ABUJA_SCENARIO, SECTOR_BRIEF, TELL_PACK, formatNaira,
+  DOCS, ASSET_DOCS, DECISIONS, BUDGET, OPENING_BALANCE, OPENING_NOTE,
+  WEEK, TERM, HANDOVER, SECTOR_BRIEF, TELL_PACK, formatNaira,
   SHORTFILL_NAIRA, SAPELE_AWARD_NAIRA, PENDING_TOTAL,
   BUDGET_CLOSING, nairaDisplay,
   type Doc, type Decision, type DecisionOption, type Ally,
 } from './content'
 
 import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState } from './profile/onboarding'
+import type { FederationState, FederationOffice, FederationLga } from "./profile"
 import {
   ANCHOR_WEEK,
   closeWeek as closeWeekSim,
@@ -40,12 +41,14 @@ import {
 import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
+import { PressGazette } from './PressGazette'
+import { MediaSystem } from './sim-core'
 import { HoldToCommit, SPEC } from './hold'
 import {
-  IcBriefings, IcAllies, IcBudget, IcFiles, IcClock, IcLock, IcSlip,
+  IcBriefings, IcAllies, IcBudget, IcFiles, IcClock, IcSlip,
 } from './icons'
 
-type Tab = 'desk' | 'patrons' | 'press' | 'ops'
+type Tab = 'desk' | 'patrons' | 'press' | 'ops' | 'budget' | 'files'
 const TABS: { id: Tab; label: string; Icon: typeof IcBriefings }[] = [
   { id: 'desk', label: 'DESK', Icon: IcBriefings },
   { id: 'patrons', label: 'PATRONS', Icon: IcAllies },
@@ -402,32 +405,7 @@ function AllyCard({ a, onOpen }: { a: Ally; onOpen: (id: string) => void }) {
   )
 }
 
-function AlliesScreen({ onOpen }: { onOpen: (id: string) => void }) {
-  return (
-    <>
-      <div className="screen-head ally-head">
-        <h2>Allies · Deputy Ticket</h2>
-        <p>ZONING CHECK · 4 KEY RELATIONSHIPS</p>
-      </div>
-      <div className="ticket-cards">
-        <button className="shortcut-card" onClick={() => onOpen('running-mate')}>
-          <b>Deputy Ticket — Zoning Check</b>
-          Who balances the ticket: zone, faith, machine, money, baggage. The South row is circled in red.
-        </button>
-        <button className="shortcut-card locked" disabled>
-          <b><IcLock width={14} height={14} /> {ABUJA_SCENARIO.title}</b>
-          {ABUJA_SCENARIO.line}. {ABUJA_SCENARIO.detail}
-        </button>
-      </div>
-      <div className="ally-list">
-        {ALLIES.map(a => <AllyCard key={a.id} a={a} onOpen={onOpen} />)}
-      </div>
-    </>
-  )
-}
-
-/* ---------- Decisions ---------- */
-function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset, onRunOp }: {
+function DecisionDetailScreen({ p, onOpen, onDecide, onToast, onReset, onRunOp }: {
   p: Persist
   onOpen: (id: string) => void
   onDecide: (id: string, key: string) => void
@@ -469,10 +447,10 @@ function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset, onRunOp }: {
               <div className="dec-hours"><IcClock width={16} height={16} /> {dec.hours} DESK HOUR{dec.hours === 1 ? '' : 'S'}</div>
 
               {/* Power constraint indicators */}
-              {p.identity && p.identity.office === 'state/governor' && dec.requiresPolice && (
+              {p.identity && p.identity.post === 'state/governor' && dec.requiresPolice && (
                 <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>CANNOT DIRECT CP</div>
               )}
-              {p.sim?.state.shocks?.find(s => s.type === 'oil-crash' && p.sim?.state.shockWeek - s.startWeek < (s.durationWeeks || 1)) && (
+              {p.sim?.state.shocks?.find(s => s.type === 'oil-crash' && (p.sim?.state.week ?? 0) - s.startWeek < (s.durationWeeks || 1)) && (
                 <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>FAAC -40% from oil crash</div>
               )}
 
@@ -1357,6 +1335,7 @@ export default function App() {
         : tier === 'local' ? 'PA (Ward Read)'
         : 'SSA (Polling)',
       isDeltaTutorial: isTutorial,
+    patrons: [],
     }
     setPersist(pr => pr.sim ? pr : {
       ...pr,
@@ -1429,12 +1408,9 @@ export default function App() {
   }
 
   const authored = (persist.weekNumber ?? ANCHOR_WEEK) <= ANCHOR_WEEK
-  const trayDocs = authored ? DOCS : persist.inTray
-  const _urgentBadge = (persist.handoverDone ? 0 : 1) + trayDocs.filter(d =>
-    d.mark === 'urgent' &&
-    !persist.marks[d.id]?.stamps.length &&
-    !DECISIONS.some(x => x.docId === d.id && decStatus(x, persist).done),
-  ).length
+  const trayDocs = authored
+    ? DOCS.filter(d => d.mark === 'urgent' && !persist.marks[d.id]?.stamps.length && !DECISIONS.some(x => x.docId === d.id && decStatus(x, persist).done))
+    : persist.inTray
 
   const settings = persist.settings ?? DEFAULT_SETTINGS
   const setSettings = (patch: Partial<GameSettings>) =>
@@ -1452,11 +1428,10 @@ export default function App() {
 
   const screens: Record<Tab, React.ReactNode> = {
     desk: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
-    decisions: <DecisionsScreen p={persist} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} onRunOp={runOp} />,
     budget: <BudgetScreen />,
     files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
     patrons: <PatronsPanel sim={persist.sim} identity={persist.identity} />,
-    press: <PressGazette media={persist.sim?.state?.media ?? new MediaSystem()} />,
+    press: <PressGazette media={persist.sim?.state?.media as any ?? new MediaSystem()} />,
     ops: <div className="dec-list" style={{ marginTop: 10 }}>
         {Object.entries(persist.ops ?? {}).map(([key, st]) => {
           return (
@@ -1492,7 +1467,7 @@ export default function App() {
   }
 
   const deskTabs = (
-    <TabBar p={persist} onTabChange={persistTabChange} />
+    <TabBar p={persist} onTabChange={tab => persistTabChange(persist, tab)} />
   )
 
   const documentView = doc ? (
@@ -1509,7 +1484,7 @@ export default function App() {
         doc.id !== 'handover' &&
         DECISIONS.some(x => x.docId === doc.id && !decStatus(x, persist).done)
       }
-      onGoDecide={() => { setOpenId(null); setTab('decisions') }}
+      onGoDecide={() => { setOpenId(null); setTab('desk') }}
       onFileAway={doc.id === 'handover'
         ? () => {
             setOpenId(null)

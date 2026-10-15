@@ -29,11 +29,11 @@ export function PressGazette({ media }: PressGazetteProps) {
         >
           <div className="gazette-headline">{story.title}</div>
           <div className="gazette-sub">
-            {story.zone} · polling {story.delta > 0 ? '+' : ''}{story.delta}%
+            {story.affectedSectors?.[0] ?? 'National'} · polling {story.magnitude > 0 ? '+' : ''}{story.magnitude}%
           </div>
-          {story.efccRisk > 0 && (
+          {story.magnitude >= 2 && (
             <span className="gazette-stamp efcc">
-              EFCC risk {story.efccRisk}%
+              EFCC risk {story.magnitude}
             </span>
           )}
         </div>
