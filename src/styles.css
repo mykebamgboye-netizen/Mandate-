@@ -1227,6 +1227,30 @@ button { font-family: inherit; cursor: pointer; }
 .ob-choice.selected .ob-choice-label::after { content: ' ✓'; color: var(--red); }
 .ob-choice-label { font: 700 15px/1.2 var(--mono); }
 .ob-choice-sub { font: 400 12px/1.45 var(--mono); color: var(--pencil); }
+/* mechanical explainers: what a prologue choice actually moves */
+.ob-effects { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ob-effect {
+  font: 700 9.5px/1 var(--mono);
+  letter-spacing: .04em;
+  color: var(--biro);
+  border: 1px solid rgba(27,26,23,.35);
+  border-radius: 2px;
+  padding: 3px 5px;
+  background: rgba(219,210,182,.5);
+}
+.ob-legend {
+  font: 400 10.5px/1.5 var(--mono);
+  letter-spacing: .03em;
+  color: var(--pencil);
+  border-top: 1px dashed rgba(27,26,23,.25);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.ob-landing {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 /* --- post picker: all 36 states + FCT as index cards --- */
 .ob-state-list {

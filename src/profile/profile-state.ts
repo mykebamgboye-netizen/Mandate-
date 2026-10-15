@@ -10,7 +10,7 @@ import { OPENING_BALANCE } from '../content'
 import { FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE } from './delta-tutorial'
 import { PLAYABLE_OFFICES } from './playable-offices'
 
-export type OnboardingPhase = 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet'
+export type OnboardingPhase = 'landing' | 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet'
 
 export interface OnboardingState {
   phase: OnboardingPhase

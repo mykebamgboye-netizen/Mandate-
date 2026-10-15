@@ -42,8 +42,22 @@ export class ShockSystem {
   private shocks: Shock[] = []
   private turnCounter = 0
 
-  constructor(initialShocks: Shock[] = []) {
+  /* initialTurn: restore a saved session — shocks were triggered against a
+     counter that has since advanced; without it a fresh build would treat every
+     old shock as newly-triggered and never expiring. */
+  constructor(initialShocks: Shock[] = [], initialTurn: number = 0) {
     this.shocks = initialShocks
+    this.turnCounter = initialTurn
+  }
+
+  /** Advance the shock clock one week. advanceTurn calls this; a restored
+      session can also call it to keep the counter in step with state.week. */
+  tick(): void {
+    this.turnCounter++
+  }
+
+  getWeek(): number {
+    return this.turnCounter
   }
 
   triggerShock(type: ShockType, severity: 1 | 2 | 3, options: { affectedZones: string[]; durationWeeks: number; economicImpact: number; deathToll?: number; playerAccountable?: boolean }): Shock {
@@ -107,7 +121,11 @@ export class ShockSystem {
     let approvalChange = 0
     let inflationChange = 0
 
-    for (const shock of this.shocks) {
+    /* Only shocks still in their duration window bite this week. isOngoing is
+       the same predicate getActiveShocks reports with — before this, expired or
+       never-expiring shocks (nothing ever advanced turnCounter) drained
+       approval every turn forever. */
+    for (const shock of this.shocks.filter(s => this.isOngoing(s))) {
       inflationChange += shock.economicImpact * (shock.severity / 3)
 
       if (shock.playerAccountable) {
@@ -267,6 +285,12 @@ export class MediaSystem {
       success: true,
       result: { deepfake: description, efccProbe, approvalChange }
     }
+  }
+
+  /** The gazette stories as a snapshot for save/restore — the same array this
+      system pushes into when it was constructed one, or its trimmed successor. */
+  getStories(): GazetteStory[] {
+    return this.gazetteStories
   }
 
   addGazetteStory(story: GazetteStory): void {
@@ -664,6 +688,7 @@ export function createInitialSimState(
 /** Advance the simulation turn. */
 export function advanceTurn(state: SimState, shockSystem: ShockSystem, mediaSystem: MediaSystem): SimState {
   mediaSystem.tick()
+  shockSystem.tick() // age the shock clock before applying this week's bites
 
   state = shockSystem.applyToState(state)
 

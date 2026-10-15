@@ -30,6 +30,8 @@ interface Props {
   onFileAway?: () => void
   /** stains only appear once the file has been open long enough to think over */
   weathered?: boolean
+  /** whose signature line this is — the accepted profile, not a hardcoded name */
+  signer?: string
 }
 
 const RED = '#B3261E'
@@ -147,7 +149,7 @@ function SigPad({ onDone }: { onDone: (s: Signature) => void }) {
 }
 
 /* ---------- document view ---------- */
-export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecision, onGoDecide, onFileAway, weathered }: Props) {
+export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecision, onGoDecide, onFileAway, weathered, signer }: Props) {
   const [flipped, setFlipped] = useState(false)
   const [penMode, setPenMode] = useState(false)
   const [penText, setPenText] = useState('')
@@ -320,8 +322,7 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
                   </div>
                   {mark.signed && (
                     <>
-                      <div className="doc-small" style={{ marginTop: 6 }}>
-                        Signed by: {doc.kind === 'gazette' ? doc.signName : 'M. Bamgboye'}<br />
+                      <div className="doc-small" style={{ marginTop: 6 }}>                          Signed by: {doc.kind === 'gazette' ? doc.signName : (signer ?? 'M. Bamgboye')}<br />
                         {doc.kind === 'gazette' ? doc.role : 'Authorized Signatory'}
                       </div>
                       <div className="gaz-footer valid">{doc.footer}</div>

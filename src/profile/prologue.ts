@@ -146,6 +146,46 @@ export const FIRST_SCARS: ScarChoice[] = [
   },
 ]
 
+/* ---------- mechanical explainers, for the prologue screen ----------
+   Each choice quietly applies basis-point deltas to the profile axes; the
+   sub-line carries the fiction but not the numbers. The chips make the
+   mechanics visible at the exact moment the player commits to them. */
+
+export const AXIS_EFFECT_LABEL: Partial<Record<keyof ProfileAxes, string>> = {
+  competence: 'Competence',
+  integrity: 'Integrity',
+  popularSupport: 'Popular support',
+  partyLoyalty: 'Party loyalty',
+  eliteTrust: 'Elite trust',
+  pressTone: 'Press tone',
+  constituencyAlignment: 'Constituency alignment',
+  mandateLegitimacy: 'Mandate legitimacy',
+  institutionalMemory: 'Institutional memory',
+}
+
+export function effectChips(
+  deltas: Partial<Record<keyof ProfileAxes, number>>,
+  patron?: { name: string; role: string; loyalty: number },
+): string[] {
+  const chips: string[] = []
+  for (const k of Object.keys(deltas) as Array<keyof ProfileAxes>) {
+    const v = deltas[k]
+    if (typeof v !== 'number' || v === 0) continue
+    if (k === 'patronageBank') {
+      chips.push('+₦' + v.toLocaleString('en-NG') + ' to the patronage bank')
+      continue
+    }
+    const label = AXIS_EFFECT_LABEL[k] ?? k
+    const points = Math.round(v / 100)
+    const sign = v > 0 ? '+' : '−'
+    chips.push(`${sign}${Math.abs(points)} ${label}`)
+  }
+  if (patron) {
+    chips.push(`A patron — ${patron.name} (${patron.role}, loyalty ${patron.loyalty}/5)`)
+  }
+  return chips
+}
+
 // Apply a prologue to a candidate profile object (client-side before the DB write).
 export function applyPrologue(
   base: ProfileOffice,
