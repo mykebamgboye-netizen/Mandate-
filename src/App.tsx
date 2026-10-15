@@ -27,6 +27,7 @@ import {
 import { effectChips } from './profile/prologue'
 import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
+import { PatronageStrip } from './PatronageStrip'
 import type { FederationLga, FederationOffice, FederationState } from './profile/types'
 import {
   supabaseConfigured,
@@ -44,14 +45,41 @@ import {
   IcBriefings, IcAllies, IcDecisions, IcBudget, IcFiles, IcClock, IcLock, IcSlip,
 } from './icons'
 
-type Tab = 'briefings' | 'allies' | 'decisions' | 'budget' | 'files'
+type Tab = 'desk' | 'patrons' | 'press' | 'ops'
 const TABS: { id: Tab; label: string; Icon: typeof IcBriefings }[] = [
-  { id: 'briefings', label: 'Briefings', Icon: IcBriefings },
-  { id: 'allies', label: 'Allies', Icon: IcAllies },
-  { id: 'decisions', label: 'Decisions', Icon: IcDecisions },
-  { id: 'budget', label: 'Budget', Icon: IcBudget },
-  { id: 'files', label: 'Files', Icon: IcFiles },
+  { id: 'desk', label: 'DESK', Icon: IcBriefings },
+  { id: 'patrons', label: 'PATRONS', Icon: IcAllies },
+  { id: 'press', label: 'PRESS', Icon: IcBudget },
+  { id: 'ops', label: 'OPS', Icon: IcFiles },
 ]
+
+function TabBar({ p, onTabChange }: {
+  p: Persist
+  onTabChange: (tab: Tab) => void
+}) {
+  const identity = p.identity
+  const patrons = identity?.patrons ?? []
+  const hasDueSoon = patrons.some(p => p.ROI_due_weeks <= 2)
+  return (
+    <nav className="desk-tabs" role="navigation" aria-label="Desk tabs">
+      {TABS.map(t => (
+        <button
+          key={t.id}
+          className={
+            `tab${p.tab === t.id ? ' active' : ''}`
+          }
+          onClick={() => onTabChange(t.id)}
+        >
+          {t.label}
+          {t.id === 'patrons' && hasDueSoon && (
+            <span className="tab-badge">!</span>
+          )}
+        </button>
+      ))}
+    </nav>
+  )
+}
+
 
 const STORE_KEY = 'mandate.desk.v1'
 interface Persist {
@@ -78,10 +106,12 @@ interface Persist {
   /** gates the onboarding shell; set the moment the profile sheet is accepted */
   profileHandle?: string
   publicApproval?: number // 0-100, dynamic polling reflected on the desk
+  /** the currently selected tab: desk, patrons, press, ops */
+  tab: Tab
 }
 
 function emptyPersist(): Persist {
-  return { marks: {}, decisions: {}, weekNumber: ANCHOR_WEEK, inTray: [], hoursBook: {}, ops: {}, weathered: [], publicApproval: 50 }
+  return { marks: {}, decisions: {}, weekNumber: ANCHOR_WEEK, inTray: [], hoursBook: {}, ops: {}, weathered: [], publicApproval: 50, tab: 'desk' }
 }
 
 function load(): Persist {
@@ -98,11 +128,16 @@ function load(): Persist {
           hoursBook: p.hoursBook ?? {},
           ops: p.ops ?? {},
           publicApproval: p.publicApproval ?? 50,
+          tab: p.tab ?? 'desk',
         }
       }
     }
   } catch { /* corrupt store — start clean */ }
   return emptyPersist()
+}
+
+function persistTabChange(p: Persist, tab: Tab): Persist {
+  return { ...p, tab }
 }
 
 /* ---------- transfer slip: one-time export that burns the desk it left (§3.7) ---------- */
@@ -217,7 +252,7 @@ function TrayCard({ doc, mark, decided, pending, weathered, onOpen }: {
 /* ---------- Briefings: the Situation Desk ---------- */
 const DESK_HOURS_TOTAL = 14
 
-function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
+function DeskScreen({ p, onOpen, ticking, onCloseWeek, tab, onTabChange }: {
   p: Persist; onOpen: (id: string) => void; ticking: boolean; onCloseWeek: () => void
 }) {
   const week = p.weekNumber ?? ANCHOR_WEEK
@@ -253,6 +288,7 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
           {urgentOpen > 0 ? `${urgentOpen} URGENT` : 'TRIAGE DONE'} · {docs.length} DOCUMENTS
         </div>
         <div className="desk-term">{TERM.line}</div>
+        <PatronageStrip sim={p.sim} identity={identity} />
         <div className="desk-hours" aria-label={`Desk Hours: ${wholeLeft} of ${DESK_HOURS_TOTAL} left`}>
           <span className="dh-label">DESK HOURS</span>
           <span className="dh-ticks">
@@ -290,18 +326,41 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
       </div>
 
       <div className="desk-close">
-        <button
-          className={`close-strip${ticking ? ' done' : ''}`}
-          onClick={onCloseWeek}
-          disabled={ticking}
-          aria-label={ticking ? 'Filing the week' : 'Close the week and advance the simulation'}
+        <HoldToCommit
+          level={2}
+          ariaLabel="Close the week — tap to begin, hold 2s to confirm"
+          onStart={() => setFiling(true)}
+          onCommit={() => {
+            setFiling(false)
+            setTicking(true)
+            tickTimer.current = window.setTimeout(() => {
+              const applied = persist.decisionsApplied ?? {}
+              const freshChoices = Object.fromEntries(
+                Object.entries(persist.decisions).filter(([id]) => !applied[id]),
+              )
+              const prior = persist.sim ?? createDeskSim('state/governor', 'Delta')
+              const result = closeWeekSim(prior, freshChoices, persist.identity)
+              const nextWeek = (persist.weekNumber ?? ANCHOR_WEEK) + 1
+              const appliedNext: Record<string, true> = { ...applied }
+              for (const id of Object.keys(freshChoices)) appliedNext[id] = true
+              setTicking(false)
+              setPersist(pr => ({
+                ...pr,
+                sim: result.snapshot,
+                weekNumber: nextWeek,
+                inTray: result.documents,
+                decisionsApplied: appliedNext,
+              }))
+            }, 2000)
+          }}
+          onEarly={() => setFiling(false)}
         >
           {ticking
             ? 'FILING…'
             : week < ANCHOR_WEEK + 1
               ? 'CLOSE THE WEEK — THE DESK TIDIES ITSELF, THE SIM ADVANCES'
               : `CLOSE THE WEEK — THE SIM ADVANCES, MONDAY'S PAPERS FOLLOW`}
-        </button>
+        </HoldToCommit>
         <div className="close-hint">Autosave runs on commit, never before (§3.7)</div>
       </div>
     </>
@@ -428,6 +487,14 @@ function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset, onRunOp }: {
                 </div>
               )}
               <div className="dec-hours"><IcClock width={16} height={16} /> {dec.hours} DESK HOUR{dec.hours === 1 ? '' : 'S'}</div>
+
+              {/* Power constraint indicators */}
+              {identity && identity.office === 'state/governor' && dec.requiresPolice && (
+                <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>CANNOT DIRECT CP</div>
+              )}
+              {sim?.shocks.find(s => s.type === 'oil-crash' && sim.shockWeek - s.startWeek < (s.durationWeeks || 1)) && (
+                <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>FAAC -40% from oil crash</div>
+              )}
 
               {!st.done && (
                 <div className="dec-opts">
@@ -1404,28 +1471,49 @@ export default function App() {
   }
 
   const screens: Record<Tab, React.ReactNode> = {
-    briefings: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
+    briefings: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} tab={persist.tab} onTabChange={(t) => persistTabChange(p, t)} />,
     allies: <AlliesScreen onOpen={openDoc} />,
     decisions: <DecisionsScreen p={persist} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} onRunOp={runOp} />,
     budget: <BudgetScreen />,
     files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
+    patrons: <PatronsPanel sim={persist.sim ?? createDeskSim('state/governor', 'Delta').state} identity={persist.identity} />,
+    press: <PressGazette media={persist.sim?.media ?? new MediaSystem()} />,
+    ops: <div className="dec-list" style={{ marginTop: 10 }}>
+        {Object.entries(persist.ops ?? {}).map(([key, st]) => {
+          return (
+            <div className="dec-card" key={key}>
+              <svg className="dec-clip" width="26" height="56" viewBox="0 0 34 74" aria-hidden>
+                <path d="M10 60 V16 a8 8 0 0 1 16 0 v44 a12 12 0 0 1-24 0 V20"
+                  fill="none" stroke="#7d7d7d" strokeWidth="3.4" strokeLinecap="round" />
+              </svg>
+              <div className="dec-q">{key}</div>
+              <div className="dec-grammar"><span className="gr-tag boxed">{st.effect?.substring(0, 20) || 'Operation'}</span></div>
+              <div className="constraint-pill" style={{ marginLeft: 4 }}>EXPOSURE: {st.efcc ? 'MONEY TRAIL EXISTS' : 'no exposure'}</div>
+              {!st.ok ? (
+                <div className="dec-opts">
+                  <HoldToCommit
+                    level={key === 'sponsor-protest' || key === 'plant-story' ? 2 : 3}
+                    className="dec-clause career"
+                    ariaLabel={`Order it — hold three seconds to order it`}
+                    onCommit={() => showToast('ORDERING — THE DESK WAITS. THE SIM DOES NOT.')}
+                  >
+                    <span className="do-label">Order it</span>
+                    <span className="do-sub">{st.effect || 'Operation'}</span>
+                  </HoldToCommit>
+                </div>
+              ) : (
+                <div className="dec-done">
+                  <div className="dec-choice">{st.effect}</div>
+                  <div className="dec-ledger">approval {st.approval > 0 ? `+${st.approval}` : st.approval} · {st.efcc ? 'EXPOSURE: THE MONEY TRAIL EXISTS' : 'no EFCC/ICPC exposure this run'}</div>
+                </div>
+              )}
+            </div>
+          )
+        })}</div>
   }
 
-  const tabbar = (
-    <nav className="tabbar" aria-label="Desk sections">
-      {TABS.map(({ id, label, Icon }) => (
-        <button
-          key={id}
-          className={`tab${tab === id ? ' active' : ''}`}
-          onClick={() => { setTab(id); setOpenId(null) }}
-          aria-current={tab === id}
-        >
-          <Icon />
-          <span>{label}</span>
-          {id === 'briefings' && urgentBadge > 0 && <span className="badge">{urgentBadge}</span>}
-        </button>
-      ))}
-    </nav>
+  const deskTabs = (
+    <TabBar p={persist} onTabChange={persistTabChange} />
   )
 
   const documentView = doc ? (
@@ -1625,12 +1713,12 @@ export default function App() {
               <aside className="col col-tray">
                 <div className="col-head">IN-TRAY · {deskWeekLine(persist.identity, persist.weekNumber ?? ANCHOR_WEEK)}</div>
                 <div className="col-scroll">
-                  <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />
+                  <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} tab={persist.tab} onTabChange={(t) => persistTabChange(p, t)} />
                 </div>
               </aside>
               <section className="col col-surface">{surface}</section>
               <aside className="col col-shelf">
-                {tabbar}
+                {deskTabs}
                 <div className="col-head">REFERENCE SHELF</div>
                 <div className="shelf-list">
                   {allDocs().filter(d => d.kind !== 'tell').slice(0, 8).map(d => (

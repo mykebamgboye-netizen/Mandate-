@@ -1342,3 +1342,220 @@ button { font-family: inherit; cursor: pointer; }
 .ob-post-group { margin-bottom: 14px; }
 .ob-post-group .ob-state-list { margin-bottom: 4px; }
 .ob-post-group .ob-choices-label { color: var(--red); }
+
+/* ---------- desk tabs ---------- */
+.desk-tabs {
+  position: fixed;
+  bottom: 0;
+  display: flex;
+  justify-content: space-around;
+  background: var(--desk);
+  border-top: 1px solid rgba(27,26,23,.3);
+  padding: 6px 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  color: var(--pencil);
+  font: 700 10px var(--mono);
+  padding: 6px 12px;
+  cursor: pointer;
+  min-width: 24px;
+  text-align: center;
+}
+
+.tab-button.active {
+  color: var(--efcc-red);
+  border-bottom: 2px solid var(--efcc-red);
+}
+
+.tab-badge {
+  background: var(--efcc-red);
+  color: white;
+  font: 700 10px var(--mono);
+  min-width: 20px;
+  text-align: center;
+  margin-left: 4px;
+}
+
+/* ---------- patronage strip ---------- */
+.patron-strip {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 8px 0;
+  gap: 12px;
+}
+
+.patron-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.patron-item {
+  min-width: 120px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.patron-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--paper-hi);
+  margin-bottom: 4px;
+  font: 700 12px var(--mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+
+.patron-name {
+  font: 600 11px var(--mono);
+  margin-bottom: 2px;
+  white-space: nowrap;
+}
+
+.patron-dots {
+  display: flex;
+  gap: 2px;
+}
+
+.patron-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.patron-dot.filled {
+  background: var(--pencil);
+}
+
+.patron-due {
+  font: 600 10px var(--mono);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.patron-due.amber {
+  color: var(--efcc-red);
+}
+
+.faac-inflation {
+  font: 600 10px var(--mono);
+  margin-top: 4px;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ---------- press gazette ---------- */
+.gazette-card {
+  flex: 0 0 30%;
+  margin: 0 4px;
+  background: var(--paper);
+  border: 1px solid var(--biro);
+  border-radius: 6px;
+  padding: 12px;
+  position: relative;
+  transition: transform 180ms;
+}
+
+.gazette-card:hover {
+  transform: translateY(-2px);
+}
+
+.gazette-headline {
+  font: 700 12px var(--mono);
+  margin-bottom: 4px;
+}
+
+.gazette-sub {
+  font: 600 10px var(--mono);
+  color: var(--pencil);
+  margin-bottom: 6px;
+}
+
+.gazette-stamp {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--efcc-red);
+  color: white;
+  font: 700 8px var(--mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.gazette-stamp.efcc {
+  background: var(--efcc-red);
+}
+
+/* ---------- patrons panel ---------- */
+.patrons-panel {
+  padding: 12px 0;
+}
+
+.patron-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.patron-bar-name {
+  font: 600 11px var(--mono);
+  min-width: 100px;
+}
+
+.patron-bar-loyalty {
+  flex: 1;
+  height: 8px;
+  background: var(--red);
+  border-radius: 4px;
+  position: relative;
+}
+
+.patron-bar-loyalty .filled {
+  height: 100%;
+  background: var(--pencil);
+}
+
+/* ---------- constraint pill ---------- */
+.constraint-pill {
+  background: rgba(219,210,182,.5);
+  border: 1px solid var(--biro);
+  color: var(--ink);
+  font: 600 10px var(--mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+/* ---------- ops exposure meter ---------- */
+.exposure-meter {
+  width: 100%;
+  height: 8px;
+  background: var(--red);
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.exposure-meter .filled {
+  height: 100%;
+  background: var(--efcc-red);
+  width: var(--exposure-percent, 0%);
+}
+
+
+/* ---------- desk tabs bottom nav ---------- */
+.desk-tabs {
+  position: fixed; bottom: 0; display: flex;
+}
