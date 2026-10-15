@@ -1455,7 +1455,7 @@ export default function App() {
     decisions: <DecisionsScreen p={persist} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} onRunOp={runOp} />,
     budget: <BudgetScreen />,
     files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
-    patrons: <PatronsPanel sim={persist.sim ?? createDeskSim('state/governor', 'Delta').state} identity={persist.identity} />,
+    patrons: <PatronsPanel sim={persist.sim} identity={persist.identity} />,
     press: <PressGazette media={persist.sim?.state?.media ?? new MediaSystem()} />,
     ops: <div className="dec-list" style={{ marginTop: 10 }}>
         {Object.entries(persist.ops ?? {}).map(([key, st]) => {
