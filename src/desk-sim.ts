@@ -43,6 +43,8 @@ export interface DeskIdentity {
   pollsterTitle: string
   /** true only for the authored Delta tutorial scenario */
   isDeltaTutorial: boolean
+  /** list of patrons sitting at this desk */
+  patrons: { id: string; name: string; role: string; loyalty: number; ROI_due_weeks: number }[]
 }
 
 /** The identity the authored content pack was written as — also the pre-onboarding

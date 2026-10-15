@@ -476,6 +476,7 @@ export interface Decision {
   deadline?: string
   options: DecisionOption[]
   special?: 'gazette'
+  requiresPolice?: boolean
 }
 export const DECISIONS: Decision[] = [
   {

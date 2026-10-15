@@ -28,7 +28,7 @@ import { effectChips } from './profile/prologue'
 import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
 import { PatronageStrip } from './PatronageStrip'
-import type { FederationLga, FederationOffice, FederationState } from './profile/types'
+import { PatronsPanel } from './PatronsPanel'
 import {
   supabaseConfigured,
   listStates,
@@ -42,7 +42,7 @@ import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { HoldToCommit, SPEC } from './hold'
 import {
-  IcBriefings, IcAllies, IcDecisions, IcBudget, IcFiles, IcClock, IcLock, IcSlip,
+  IcBriefings, IcAllies, IcBudget, IcFiles, IcClock, IcLock, IcSlip,
 } from './icons'
 
 type Tab = 'desk' | 'patrons' | 'press' | 'ops'
@@ -252,7 +252,7 @@ function TrayCard({ doc, mark, decided, pending, weathered, onOpen }: {
 /* ---------- Briefings: the Situation Desk ---------- */
 const DESK_HOURS_TOTAL = 14
 
-function DeskScreen({ p, onOpen, ticking, onCloseWeek, tab, onTabChange }: {
+function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
   p: Persist; onOpen: (id: string) => void; ticking: boolean; onCloseWeek: () => void
 }) {
   const week = p.weekNumber ?? ANCHOR_WEEK
@@ -329,31 +329,11 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek, tab, onTabChange }: {
         <HoldToCommit
           level={2}
           ariaLabel="Close the week — tap to begin, hold 2s to confirm"
-          onStart={() => setFiling(true)}
+          onStart={() => {}}
           onCommit={() => {
-            setFiling(false)
-            setTicking(true)
-            tickTimer.current = window.setTimeout(() => {
-              const applied = persist.decisionsApplied ?? {}
-              const freshChoices = Object.fromEntries(
-                Object.entries(persist.decisions).filter(([id]) => !applied[id]),
-              )
-              const prior = persist.sim ?? createDeskSim('state/governor', 'Delta')
-              const result = closeWeekSim(prior, freshChoices, persist.identity)
-              const nextWeek = (persist.weekNumber ?? ANCHOR_WEEK) + 1
-              const appliedNext: Record<string, true> = { ...applied }
-              for (const id of Object.keys(freshChoices)) appliedNext[id] = true
-              setTicking(false)
-              setPersist(pr => ({
-                ...pr,
-                sim: result.snapshot,
-                weekNumber: nextWeek,
-                inTray: result.documents,
-                decisionsApplied: appliedNext,
-              }))
-            }, 2000)
+            onCloseWeek()
           }}
-          onEarly={() => setFiling(false)}
+          onEarly={() => {}}
         >
           {ticking
             ? 'FILING…'
@@ -489,10 +469,10 @@ function DecisionsScreen({ p, onOpen, onDecide, onToast, onReset, onRunOp }: {
               <div className="dec-hours"><IcClock width={16} height={16} /> {dec.hours} DESK HOUR{dec.hours === 1 ? '' : 'S'}</div>
 
               {/* Power constraint indicators */}
-              {identity && identity.office === 'state/governor' && dec.requiresPolice && (
+              {p.identity && p.identity.office === 'state/governor' && dec.requiresPolice && (
                 <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>CANNOT DIRECT CP</div>
               )}
-              {sim?.shocks.find(s => s.type === 'oil-crash' && sim.shockWeek - s.startWeek < (s.durationWeeks || 1)) && (
+              {p.sim?.state.shocks?.find(s => s.type === 'oil-crash' && p.sim?.state.shockWeek - s.startWeek < (s.durationWeeks || 1)) && (
                 <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>FAAC -40% from oil crash</div>
               )}
 
@@ -1188,7 +1168,7 @@ export default function App() {
     sheet: import('./profile').ProfileSheet | null
     error: string | null
   } | null>(null)
-  const [tab, setTab] = useState<Tab>('briefings')
+  const [tab, setTab] = useState<Tab>('desk')
   const [openId, setOpenId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null)
   const [ticking, setTicking] = useState(false)
@@ -1450,7 +1430,7 @@ export default function App() {
 
   const authored = (persist.weekNumber ?? ANCHOR_WEEK) <= ANCHOR_WEEK
   const trayDocs = authored ? DOCS : persist.inTray
-  const urgentBadge = (persist.handoverDone ? 0 : 1) + trayDocs.filter(d =>
+  const _urgentBadge = (persist.handoverDone ? 0 : 1) + trayDocs.filter(d =>
     d.mark === 'urgent' &&
     !persist.marks[d.id]?.stamps.length &&
     !DECISIONS.some(x => x.docId === d.id && decStatus(x, persist).done),
@@ -1471,13 +1451,12 @@ export default function App() {
   }
 
   const screens: Record<Tab, React.ReactNode> = {
-    briefings: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} tab={persist.tab} onTabChange={(t) => persistTabChange(p, t)} />,
-    allies: <AlliesScreen onOpen={openDoc} />,
+    desk: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
     decisions: <DecisionsScreen p={persist} onOpen={openDoc} onDecide={decide} onToast={showToast} onReset={reset} onRunOp={runOp} />,
     budget: <BudgetScreen />,
     files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
     patrons: <PatronsPanel sim={persist.sim ?? createDeskSim('state/governor', 'Delta').state} identity={persist.identity} />,
-    press: <PressGazette media={persist.sim?.media ?? new MediaSystem()} />,
+    press: <PressGazette media={persist.sim?.state?.media ?? new MediaSystem()} />,
     ops: <div className="dec-list" style={{ marginTop: 10 }}>
         {Object.entries(persist.ops ?? {}).map(([key, st]) => {
           return (
@@ -1695,7 +1674,7 @@ export default function App() {
       ) : (
         <main className="app-main" key={tab}>
           <div className="zoom-layer">
-            {documentView || (expanded && tab === 'briefings'
+            {documentView || (expanded && tab === 'desk'
               ? <div className="surface-note">THE TRAY IS ON THE LEFT.<span>Pick a file; the tabs swap this surface.</span></div>
               : screens[tab])}
           </div>
@@ -1713,7 +1692,7 @@ export default function App() {
               <aside className="col col-tray">
                 <div className="col-head">IN-TRAY · {deskWeekLine(persist.identity, persist.weekNumber ?? ANCHOR_WEEK)}</div>
                 <div className="col-scroll">
-                  <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} tab={persist.tab} onTabChange={(t) => persistTabChange(p, t)} />
+                  <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />
                 </div>
               </aside>
               <section className="col col-surface">{surface}</section>

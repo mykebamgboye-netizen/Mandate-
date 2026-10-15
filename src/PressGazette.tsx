@@ -3,9 +3,8 @@
    Each card has headline, zone + polling delta, and EFCC risk stamp.
    Tap → opens DocumentView with signer={identity.name}.
 */
-import React from 'react'
-import type { MediaSystem } from '../sim-core'
-import type { GazetteStory } from '../types'
+import type { MediaSystem } from './sim-core'
+import type { GazetteStory } from './types'
 import { DocumentView } from './DocumentView'
 
 interface PressGazetteProps {

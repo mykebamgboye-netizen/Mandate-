@@ -2,8 +2,7 @@
    Shows complete list of patrons with loyalty bars, last favor, quarterly due.
    Uses same data as PatronageStrip but in a full list format.
 */
-import React from 'react'
-import type { SimSnapshot, DeskIdentity } from '../desk-sim'
+import type { SimSnapshot, DeskIdentity } from './desk-sim'
 
 interface PatronPatron {
   id: string
@@ -15,7 +14,8 @@ interface PatronPatron {
 }
 
 interface PatronsPanelProps {
-  sim: SimSnapshot
+  sim?: SimSnapshot
+  patronageBank?: number
   identity: DeskIdentity | undefined
 }
 
@@ -25,8 +25,8 @@ const patronageNames: Record<string, string> = {
   owhonda: 'Elder Tom Owhonda',
 }
 
-export function PatronsPanel({ sim, identity }: PatronsPanelProps) {
-  const bank = sim.state.patronageBank ?? 0
+export function PatronsPanel({ identity, patronageBank }: PatronsPanelProps) {
+  const bank = patronageBank ?? 0
   const patrons: PatronPatron[] = (identity?.patrons ?? []).map((p: any) => ({
     id: p.id,
     name: patronageNames[p.id] ?? p.name ?? 'Unknown',
