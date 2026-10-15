@@ -7,7 +7,7 @@ import {
   WEEK, TERM, HANDOVER, SECTOR_BRIEF, TELL_PACK, formatNaira,
   SHORTFILL_NAIRA, SAPELE_AWARD_NAIRA, PENDING_TOTAL,
   BUDGET_CLOSING, nairaDisplay,
-  type Doc, type Decision, type DecisionOption, type Ally,
+  type Doc, type Decision,
 } from './content'
 
 import { ORIGINS, BRINGERS, FIRST_SCARS, nextSheetState } from './profile/onboarding'
@@ -16,9 +16,8 @@ import {
   ANCHOR_WEEK,
   closeWeek as closeWeekSim,
   createDeskSim,
-  executeOp,
-  opToNote,
-  OPS,
+  
+  
   orientationNote,
   weekDateLine,
   weekLine as simWeekLine,
@@ -43,9 +42,9 @@ import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from
 import { DocumentView, type DocMarkState } from './DocumentView'
 import { PressGazette } from './PressGazette'
 import { MediaSystem } from './sim-core'
-import { HoldToCommit, SPEC } from './hold'
+import { HoldToCommit } from './hold'
 import {
-  IcBriefings, IcAllies, IcBudget, IcFiles, IcClock, IcSlip,
+  IcBriefings, IcAllies, IcBudget, IcFiles, IcSlip,
 } from './icons'
 
 type Tab = 'desk' | 'patrons' | 'press' | 'ops' | 'budget' | 'files'
@@ -189,8 +188,6 @@ function allDocs(): Doc[] { return [...DOCS, SECTOR_BRIEF, TELL_PACK, ...ASSET_D
 function findDoc(id: string, tray: Doc[] = []): Doc | undefined {
   return id === HANDOVER.id ? HANDOVER : [...allDocs(), ...tray].find(d => d.id === id)
 }
-
-const BADGE_TONE: Record<Ally['badge'], string> = { LOYAL: 'loyal', NEGOTIABLE: 'nego', LEVERAGE: 'lev' }
 
 function decStatus(dec: Decision, p: Persist): { done: boolean; choice?: string; ledger?: string } {
   if (dec.special === 'gazette') {
@@ -351,193 +348,6 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
 }
 
 /* ---------- Allies: the deputy-ticket zoning board ---------- */
-function Rosettes({ n, tone }: { n: number; tone: string }) {
-  return (
-    <span className={`rosettes ${tone}`} aria-hidden>
-      {[0, 1, 2].map(i => (
-        <svg key={i} viewBox="0 0 24 24" width="17" height="17" className={i < n ? 'on' : ''}>
-          <g fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round">
-            {Array.from({ length: 8 }, (_, k) => {
-              const a = (k / 8) * Math.PI * 2
-              const x = 12 + Math.cos(a) * 6.4
-              const y = 12 + Math.sin(a) * 6.4
-              return <ellipse key={k} cx={x} cy={y} rx="3" ry="3" transform={`rotate(${(k / 8) * 360} ${x} ${y})`} />
-            })}
-            <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" />
-          </g>
-        </svg>
-      ))}
-    </span>
-  )
-}
-
-function AllyCard({ a, onOpen }: { a: Ally; onOpen: (id: string) => void }) {
-  const tone = BADGE_TONE[a.badge]
-  return (
-    <button className="ally-card" onClick={() => onOpen(`asset-${a.id}`)}>
-      <svg className="ac-clip" width="24" height="52" viewBox="0 0 34 74" aria-hidden>
-        <path d="M10 60 V16 a8 8 0 0 1 16 0 v44 a12 12 0 0 1-24 0 V20"
-          fill="none" stroke="#7d7d7d" strokeWidth="3.4" strokeLinecap="round" />
-      </svg>
-      <div className="ac-top">
-        <div className="ac-portrait" aria-hidden>
-          <svg viewBox="0 0 48 56" width="48" height="56">
-            <rect x="1" y="1" width="46" height="54" fill="#EFE9D8" stroke="#8a8477" strokeWidth="1.4" />
-            <circle cx="24" cy="21" r="9" fill="none" stroke="#3d3a33" strokeWidth="1.8" />
-            <path d="M8 52c1.4-10 7.6-15 16-15s14.6 5 16 15" fill="none" stroke="#3d3a33" strokeWidth="1.8" />
-            <path d="M15 18c2-5 16-5 18 0" fill="none" stroke="#3d3a33" strokeWidth="1.4" />
-          </svg>
-          <span className="ac-initials">{a.initials}</span>
-        </div>
-        <div className="ac-id">
-          <div className="ac-name">{a.name}</div>
-          <div className="ac-office">{a.office}</div>
-          <div className="ac-zone">{a.zone}</div>
-        </div>
-        <span className={`ac-badge ${tone}`}>{a.badge}</span>
-      </div>
-      <div className="ac-whisper">{a.whisper}</div>
-      <div className="ac-trust">
-        <Rosettes n={a.trust} tone={tone} />
-        <span className={`ac-trust-label ${tone}`}>TRUST {a.trust}/3</span>
-      </div>
-    </button>
-  )
-}
-
-function DecisionDetailScreen({ p, onOpen, onDecide, onToast, onReset, onRunOp }: {
-  p: Persist
-  onOpen: (id: string) => void
-  onDecide: (id: string, key: string) => void
-  onToast: (msg: string) => void
-  onReset: () => void
-  onRunOp: (key: string) => void
-}) {
-  const awaiting = DECISIONS.filter(d => !decStatus(d, p).done).length
-  const commit = (dec: Decision, o: DecisionOption) => {
-    if (dec.special === 'gazette' && o.key === 'sign') { onOpen(dec.docId); return }
-    onDecide(dec.id, o.key)
-  }
-  return (
-    <>
-      <div className="dec-head">
-        <span>DECISIONS · 8 OCT 2026</span>
-        <span className="dec-head-right">{awaiting} AWAITING YOUR STAMP</span>
-      </div>
-      <hr className="desk-rule" />
-      <div className="dec-list">
-        {DECISIONS.map(dec => {
-          const st = decStatus(dec, p)
-          return (
-            <div className="dec-card" key={dec.id}>
-              <svg className="dec-clip" width="26" height="56" viewBox="0 0 34 74" aria-hidden>
-                <path d="M10 60 V16 a8 8 0 0 1 16 0 v44 a12 12 0 0 1-24 0 V20"
-                  fill="none" stroke="#7d7d7d" strokeWidth="3.4" strokeLinecap="round" />
-              </svg>
-              {st.done && <span className="dec-stamp">DECIDED</span>}
-              {!st.done && dec.deadline && <div className="dec-deadline">{dec.deadline}</div>}
-              <div className="dec-q">{dec.question}</div>
-              {dec.options[0] && (
-                <div className="dec-grammar">
-                  {dec.options[0].marg.split(' · ').map((g, i) => (
-                    <span key={i} className={`gr-tag${i < 2 ? ' boxed' : ''}`}>{g}</span>
-                  ))}
-                </div>
-              )}
-              <div className="dec-hours"><IcClock width={16} height={16} /> {dec.hours} DESK HOUR{dec.hours === 1 ? '' : 'S'}</div>
-
-              {/* Power constraint indicators */}
-              {p.identity && p.identity.post === 'state/governor' && dec.requiresPolice && (
-                <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>CANNOT DIRECT CP</div>
-              )}
-              {p.sim?.state.shocks?.find(s => s.type === 'oil-crash' && (p.sim?.state.week ?? 0) - s.startWeek < (s.durationWeeks || 1)) && (
-                <div className="constraint-pill" style={{ marginLeft: 4, marginBottom: 4 }}>FAAC -40% from oil crash</div>
-              )}
-
-              {!st.done && (
-                <div className="dec-opts">
-                  {dec.options.map(o => {
-                    const lvl = dec.special === 'gazette' && o.key === 'sign' ? 1 : o.level
-                    return (
-                      <HoldToCommit
-                        key={o.key}
-                        level={lvl}
-                        className={`dec-clause${o.level === 3 ? ' career' : ''}`}
-                        ariaLabel={`${o.label} — ${lvl === 3 ? 'hold three seconds to confirm' : lvl === 2 ? 'hold one second to sign' : 'tap to open'}`}
-                        onCommit={() => commit(dec, o)}
-                        onEarly={() => onToast(SPEC[o.level].early)}
-                      >
-                        <span className="do-label">{o.label}</span>
-                        <span className="do-sub">{o.sub}</span>
-                      </HoldToCommit>
-                    )
-                  })}
-                </div>
-              )}
-
-              {st.done && (
-                <div className="dec-done">
-                  <div className="dec-choice">{st.choice}</div>
-                  <div className="dec-ledger">{st.ledger}</div>
-                  {dec.special === 'gazette' && (
-                    <button className="dec-goto" style={{ marginTop: 10 }} onClick={() => onOpen(dec.docId)}>
-                      REVIEW THE SIGNED FILE →
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* off the books — the sim core's dirty tricks, wired in without mercy:
-          they cost no desk hours but the money trail and the press are real */}
-      <hr className="desk-rule" />
-      <div className="screen-head" style={{ margin: '14px 16px 0' }}>
-        <h2>Off the books</h2>
-        <p>OPERATIONS · NO DESK HOURS · THE LEDGERS STILL READ IT</p>
-      </div>
-      <div className="dec-list" style={{ marginTop: 10 }}>
-        {OPS.map(op => {
-          const st = p.ops[op.key]
-          return (
-            <div className="dec-card" key={op.key}>
-              <svg className="dec-clip" width="26" height="56" viewBox="0 0 34 74" aria-hidden>
-                <path d="M10 60 V16 a8 8 0 0 1 16 0 v44 a12 12 0 0 1-24 0 V20"
-                  fill="none" stroke="#7d7d7d" strokeWidth="3.4" strokeLinecap="round" />
-              </svg>
-              {st && <span className="dec-stamp">RUN LOGGED</span>}
-              <div className="dec-q">{op.label}</div>
-              <div className="dec-grammar"><span className="gr-tag boxed">{op.sub}</span></div>
-              {!st ? (
-                <div className="dec-opts">
-                  <HoldToCommit
-                    level={op.key === 'sponsor-protest' || op.key === 'plant-story' ? 2 : 3}
-                    className="dec-clause career"
-                    ariaLabel={`${op.label} — hold three seconds to order it`}
-                    onCommit={() => onRunOp(op.key)}
-                    onEarly={() => onToast('IT IS NOT A TAP — HOLD, AND NOTHING MOVES UNTIL THE CIRCLE FILLS')}
-                  >
-                    <span className="do-label">Order it</span>
-                    <span className="do-sub">{op.blurb}</span>
-                  </HoldToCommit>
-                </div>
-              ) : (
-                <div className="dec-done">
-                  <div className="dec-choice">{st.effect}</div>
-                  <div className="dec-ledger">approval {st.approval > 0 ? `+${st.approval}` : st.approval} · {st.efcc ? 'EXPOSURE: THE MONEY TRAIL EXISTS' : 'no EFCC/ICPC exposure this run'}</div>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      <button className="dec-reset" onClick={onReset}>— clear the week (prototype reset) —</button>
-      <button className="dec-reset" onClick={onReset}>— clear the week (prototype reset) —</button>
-    </>
-  )
-}
 
 /* ---------- Budget ---------- */
 function BudgetScreen() {
@@ -1152,7 +962,7 @@ export default function App() {
   const [ticking, setTicking] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const [literacy, setLiteracy] = useState(2)
-  const [flash, setFlash] = useState(0)
+  const [flash] = useState(0)
   const expanded = useExpanded()
   const toastTimer = useRef(0)
   const tickTimer = useRef(0)
@@ -1362,55 +1172,9 @@ export default function App() {
   const setMark = (id: string, m: DocMarkState) =>
     setPersist(p => ({ ...p, marks: { ...p.marks, [id]: m } }))
 
-  const decide = (id: string, key: string) => {
-    setPersist(p => ({ ...p, decisions: { ...p.decisions, [id]: key }, hoursBook: { ...p.hoursBook, [id]: true } }))
-    const dec = DECISIONS.find(d => d.id === id)
-    const opt = dec?.options.find(o => o.key === key)
-    if (opt?.level === 3) {
-      /* career-ending: the screen takes the hit with you */
-      setFlash(Date.now())
-      showToast('COMMITTED — THE LEDGERS READ IT. THERE IS NO WAY BACK.')
-    } else {
-      showToast('DECISION RECORDED — THE LEDGERS READ IT')
-    }
-  }
-
   /* off the books — run one dirty trick through the real sim machinery. It
      costs no desk hours (that is the point of off the books), but the approval
      swing lands immediately and the exposure shows up as events, not as text. */
-  const runOp = (key: string) => {
-    if (!persist.ops[key]) {
-      showToast('ORDERING — THE DESK WAITS. THE SIM DOES NOT.')
-    }
-    const outcome = executeOp(persist.sim ?? createDeskSim('state/governor', 'Delta'), key as import('./types').DirtyTrick)
-    const week = persist.weekNumber ?? ANCHOR_WEEK
-    const note = opToNote(week, key as import('./types').DirtyTrick, {
-      success: outcome.ok, effect: outcome.effect, efccRisk: outcome.efcc, icpcRisk: outcome.efcc,
-      publicReaction: outcome.approval < 0 ? 'disapprove' : outcome.approval > 0 ? 'approve' : 'indifferent',
-      approvalChange: outcome.approval,
-    })
-    setPersist(p => ({
-      ...p,
-      sim: outcome.snapshot,
-      publicApproval: outcome.snapshot.state.publicApproval,
-      ops: { ...p.ops, [key]: { ok: outcome.ok, effect: outcome.effect, approval: outcome.approval, efcc: outcome.efcc } },
-      inTray: [...p.inTray, note],
-    }))
-    showToast(outcome.ok
-      ? `IT IS DONE — ${outcome.effect.toUpperCase()}`
-      : `IT DID NOT TAKE — ${outcome.effect.toUpperCase()}`)
-  }
-
-  const reset = () => {
-    setPersist(emptyPersist())
-    try { localStorage.removeItem(STORE_KEY) } catch { /* ignore */ }
-    showToast('WEEK CLEARED — THE DESK IS EMPTY AGAIN')
-  }
-
-  const authored = (persist.weekNumber ?? ANCHOR_WEEK) <= ANCHOR_WEEK
-  const trayDocs = authored
-    ? DOCS.filter(d => d.mark === 'urgent' && !persist.marks[d.id]?.stamps.length && !DECISIONS.some(x => x.docId === d.id && decStatus(x, persist).done))
-    : persist.inTray
 
   const settings = persist.settings ?? DEFAULT_SETTINGS
   const setSettings = (patch: Partial<GameSettings>) =>

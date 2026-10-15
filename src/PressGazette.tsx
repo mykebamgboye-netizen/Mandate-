@@ -4,9 +4,6 @@
    Tap → opens DocumentView with signer={identity.name}.
 */
 import type { MediaSystem } from './sim-core'
-import type { GazetteStory } from './types'
-import { DocumentView } from './DocumentView'
-
 interface PressGazetteProps {
   media: MediaSystem
 }
