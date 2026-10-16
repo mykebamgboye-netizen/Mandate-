@@ -746,6 +746,26 @@ export function advanceTurn(state: SimState, shockSystem: ShockSystem, mediaSyst
   return state
 }
 
+/* Which off-the-books move leaves a trail, and to which agency. These are read
+   by executeDirtyTrick below and by the desk's ops folder, which has to warn a
+   hand BEFORE it presses the button — one table, not two that can drift. */
+export const EFCC_RISK: Record<DirtyTrick, boolean> = {
+  'bribe-official': true,
+  'blackmail-target': true,
+  'sponsor-protest': true,
+  'plant-story': true,
+  'deepfake-rival': true,
+  'suppress-vote': false
+}
+export const ICPC_RISK: Record<DirtyTrick, boolean> = {
+  'bribe-official': false,
+  'blackmail-target': true,
+  'sponsor-protest': false,
+  'plant-story': true,
+  'deepfake-rival': true,
+  'suppress-vote': false
+}
+
 /** Execute a dirty trick — bribe, blackmail, sponsor protest, plant story — with EFCC/ICPC risk. */
 export function executeDirtyTrick(
   trick: DirtyTrick,
@@ -754,22 +774,8 @@ export function executeDirtyTrick(
   var _mediaSystem = context.mediaSystem
   var _shockSystem = context.shockSystem
   var _npcProfiles = context.npcProfiles
-  const efccRiskMap: Record<DirtyTrick, boolean> = {
-    'bribe-official': true,
-    'blackmail-target': true,
-    'sponsor-protest': true,
-    'plant-story': true,
-    'deepfake-rival': true,
-    'suppress-vote': false
-  }
-  const icpcRiskMap: Record<DirtyTrick, boolean> = {
-    'bribe-official': false,
-    'blackmail-target': true,
-    'sponsor-protest': false,
-    'plant-story': true,
-    'deepfake-rival': true,
-    'suppress-vote': false
-  }
+  const efccRiskMap: Record<DirtyTrick, boolean> = EFCC_RISK
+  const icpcRiskMap: Record<DirtyTrick, boolean> = ICPC_RISK
 
   var success = false
   var effect = ''

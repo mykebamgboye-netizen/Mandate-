@@ -257,19 +257,22 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
         </filter>
       </svg>
 
-      <header className="app-header">
-        <div className="hdr-left">
-          <button className="hdr-btn" onClick={onBack} aria-label="Back to desk">
-            <IcBack width={20} height={20} />
+      <header className="dv2-dochead">
+        <div className="dv2-dochead-side">
+          <button className="dv2-dochead-btn" onClick={onBack} aria-label="Back to desk">
+            <IcBack width={18} height={18} /> DESK
           </button>
         </div>
-        <div className="wordmark">MANDATE</div>
-        <div className="hdr-right">
-          <button className="hdr-btn" onClick={() => setFlipped(f => !f)} aria-label="Flip to authority">
-            <IcInfo width={19} height={19} />
+        <div className="dv2-dochead-mid">
+          <span className="dv2-dochead-title">{doc.title}</span>
+          <span className="dv2-dochead-record">{doc.recordId}</span>
+        </div>
+        <div className="dv2-dochead-side">
+          <button className="dv2-dochead-btn" onClick={() => setFlipped(f => !f)} aria-label="Flip to authority">
+            <IcInfo width={18} height={18} /> {flipped ? 'RECTO' : 'AUTHORITY'}
           </button>
-          <button className="hdr-btn" onClick={copyRecord} aria-label="Copy record id">
-            <IcShare width={19} height={19} />
+          <button className="dv2-dochead-btn" onClick={copyRecord} aria-label="Copy record id">
+            <IcShare width={18} height={18} />
           </button>
         </div>
       </header>
@@ -430,8 +433,9 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
       </div>
 
       {penMode && (
-        <div className="pen-area">
+        <div className="dv2-pen">
           <textarea
+            className="dv2-slip"
             autoFocus value={penText} onChange={e => setPenText(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveAnnotation() }
@@ -440,49 +444,49 @@ export function DocumentView({ doc, mark, onBack, onMark, onToast, pendingDecisi
             placeholder="red pen — note on the file…"
             aria-label="Annotation text"
           />
-          <div className="pen-hint">
+          <div className="dv2-pen-hint">
             <span>ENTER TO FILE · ESC TO DROP</span>
             <span>
-              <button onClick={saveAnnotation}>FILE IT</button>
-              <button onClick={() => { setPenText(''); setPenMode(false) }}>CANCEL</button>
+              <button className="dv2-act" onClick={saveAnnotation}>FILE IT</button>
+              <button className="dv2-act ghost" onClick={() => { setPenText(''); setPenMode(false) }}>CANCEL</button>
             </span>
           </div>
         </div>
       )}
 
-      <div className="action-bar">
-        <button className="act-btn" onClick={() => setFlipped(f => !f)}>
+      <div className="dv2-docbar">
+        <button className="dv2-docbar-btn" onClick={() => setFlipped(f => !f)}>
           <IcFlip /> <span>FLIP · CITE</span>
         </button>
-        <button className={`act-btn pen${penMode ? ' ready' : ''}`} onClick={() => setPenMode(p => !p)}>
+        <button className={`dv2-docbar-btn${penMode ? ' ready' : ''}`} onClick={() => setPenMode(p => !p)}>
           <IcPen /> <span>RED PEN</span>
         </button>
         {pendingDecision && onGoDecide && (
-          <button className="act-btn pen" onClick={onGoDecide}>
+          <button className="dv2-docbar-btn" onClick={onGoDecide}>
             <IcDecisions /> <span>DECIDE IT</span>
           </button>
         )}
         {onFileAway && (
-          <button className="act-btn" onClick={onFileAway}>
+          <button className="dv2-docbar-btn" onClick={onFileAway}>
             <IcFiles /> <span>FILE THIS NOTE</span>
           </button>
         )}
         {isGazette && (
           <>
-            <StampButton label="APPROVED" onStamp={applyStamp('APPROVED', RED)} disabled={stamped}
+            <StampButton className="dv2-docbar-btn" label="APPROVED" onStamp={applyStamp('APPROVED', RED)} disabled={stamped}
               onPress={p => (p ? pressGhost('APPROVED', RED) : liftGhost())} />
-            <StampButton label="DECLINED" blue onStamp={applyStamp('DECLINED', BLUE)} disabled={stamped}
+            <StampButton className="dv2-docbar-btn" label="DECLINED" blue onStamp={applyStamp('DECLINED', BLUE)} disabled={stamped}
               onPress={p => (p ? pressGhost('DECLINED', BLUE) : liftGhost())} />
           </>
         )}
         {!isGazette && stamped && (
-          <button className="act-btn" disabled>
+          <button className="dv2-docbar-btn" disabled>
             <IcCheck /> <span>ACTED ON</span>
           </button>
         )}
         {isTell && !mark.tellResult && (mark.tellMarks?.length ?? 0) > 0 && onMark && (
           <button
-            className="act-btn pen"
+            className="dv2-docbar-btn"
             onClick={() => {
               const marks = new Set(mark.tellMarks ?? [])
               const truths = new Set(

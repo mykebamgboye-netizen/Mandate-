@@ -16,7 +16,7 @@
 import type {
   Doc, SecurityDoc, ClippingDoc, NoteDoc,
 } from './content'
-import { formatNaira } from './content'
+import { formatNaira, OPENING_BALANCE } from './content'
 import { advanceTurn, executeDirtyTrick, MediaSystem, ShockSystem, createInitialSimState } from './sim-core'
 import type { DirtyTrick, DirtyTrickResult, GazetteStory, SimState } from './types'
 
@@ -45,6 +45,9 @@ export interface DeskIdentity {
   isDeltaTutorial: boolean
   /** list of patrons sitting at this desk */
   patrons: { id: string; name: string; role: string; loyalty: number; ROI_due_weeks: number }[]
+  /** the patronage bank the record was opened with, in naira — absent on saves
+      that predate it, and the patrons folder says so rather than printing ₦0 */
+  patronageBank?: number
 }
 
 /** The identity the authored content pack was written as — also the pre-onboarding
@@ -58,6 +61,8 @@ export const DELTA_TUTORIAL_IDENTITY: DeskIdentity = {
   lga: null,
   party: 'CDM',
   patrons: [],
+  // the authored desk opened on the treasury's opening balance (content.ts)
+  patronageBank: OPENING_BALANCE,
   honorific: 'His Excellency',
   digestHead: 'DELTA STATE SECURITY DIGEST',
   pollsterTitle: 'SSA (Polling)',

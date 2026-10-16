@@ -487,6 +487,8 @@
   background: linear-gradient(180deg, var(--dv2-green) 0%, var(--dv2-green-deep) 100%);
   box-shadow: 0 6px 16px rgba(10,92,54,.45);
 }
+.dv2-nav-budget { transition: transform 140ms ease, filter 140ms ease; }
+button.dv2-nav-budget:hover { transform: translateY(-1px); filter: brightness(1.06); }
 .dv2-nav-budget-sym { font: 700 10px/1 var(--mono); color: var(--dv2-gold-pale); }
 .dv2-nav-budget-value { font: 700 15px/1 var(--mono); color: #fff; letter-spacing: .02em; }
 .dv2-nav-budget-cap { font: 700 8px/1 var(--mono); letter-spacing: .18em; color: rgba(240,226,182,.9); }

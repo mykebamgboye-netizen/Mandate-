@@ -4,9 +4,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DOCS, ASSET_DOCS, DECISIONS, BUDGET, OPENING_BALANCE, OPENING_NOTE,
-  WEEK, TERM, HANDOVER, SECTOR_BRIEF, TELL_PACK, formatNaira,
+  WEEK, TERM, HANDOVER, SECTOR_BRIEF, TELL_PACK,
   SHORTFILL_NAIRA, SAPELE_AWARD_NAIRA, PENDING_TOTAL,
-  BUDGET_CLOSING, nairaDisplay,
+  BUDGET_CLOSING, CLOSING_AFTER_SANCTION, nairaDisplay,
   type Doc, type Decision,
 } from './content'
 
@@ -28,12 +28,16 @@ import { effectChips } from './profile/prologue'
 import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
 import { PatronageStrip } from './PatronageStrip'
-import { PatronsPanel } from './PatronsPanel'
 import DeskShell from './components/desk/DeskShell'
-import { BottomNav, type BottomTab } from './components/desk/BottomNav'
+import FolderShell from './components/desk/FolderShell'
 import type { DeskLevel } from './components/desk/FederalHeader'
 import type { Patron } from './components/desk/PatronRow'
 import type { GazetteContent } from './components/desk/Gazette'
+import PatronsScreen from './components/desk/PatronsScreen'
+import PressScreen from './components/desk/PressScreen'
+import OpsScreen, { type OpResult } from './components/desk/OpsScreen'
+import CabinetScreen, { type CabinetRow } from './components/desk/CabinetScreen'
+import TreasuryScreen from './components/desk/TreasuryScreen'
 import {
   supabaseConfigured,
   listStates,
@@ -45,52 +49,45 @@ import {
 import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
-import { PressGazette } from './PressGazette'
-import { MediaSystem } from './sim-core'
+import AtlasScreen, { type AtlasLife } from './components/atlas/AtlasScreen'
+import { POSITIONS } from './sim/positions'
+import { createNewLife, lifeList, lifeSummary, loadLives } from './profile/lives'
+import { executeOp } from './desk-sim'
+import type { DirtyTrick } from './types'
 import { HoldToCommit } from './hold'
-import {
-  IcBriefings, IcAllies, IcBudget, IcFiles, IcSlip,
-} from './icons'
+import { IcSlip } from './icons'
 
-type Tab = 'desk' | 'patrons' | 'press' | 'ops' | 'budget' | 'files'
-const TABS: { id: Tab; label: string; Icon: typeof IcBriefings }[] = [
-  { id: 'desk', label: 'DESK', Icon: IcBriefings },
-  { id: 'patrons', label: 'PATRONS', Icon: IcAllies },
-  { id: 'press', label: 'PRESS', Icon: IcBudget },
-  { id: 'ops', label: 'OPS', Icon: IcFiles },
-]
+type Tab = 'desk' | 'patrons' | 'press' | 'ops' | 'budget' | 'files' | 'atlas'
 
 const VITE_ENABLE_DESK_V2 = import.meta.env.VITE_ENABLE_DESK_V2
-// Default to true when not set (e.g. production Vercel), so the new DeskCard UI renders by default
+/* Defaults to on: the DeskCard surface is the desk now. The flag only keeps the
+   authored Week 41 paper desk reachable for comparison. */
 const deskV2 = VITE_ENABLE_DESK_V2 ? VITE_ENABLE_DESK_V2 === 'true' : true
 
-function TabBar({ p, onTabChange }: {
-  p: Persist
-  onTabChange: (tab: Tab) => void
-}) {
-  const identity = p.identity
-  const patrons = identity?.patrons ?? []
-  const hasDueSoon = patrons.some(p => p.ROI_due_weeks <= 2)
-  return (
-    <nav className="desk-tabs" role="navigation" aria-label="Desk tabs">
-      {TABS.map(t => (
-        <button
-          key={t.id}
-          className={
-            `tab${p.tab === t.id ? ' active' : ''}`
-          }
-          onClick={() => onTabChange(t.id)}
-        >
-          {t.label}
-          {t.id === 'patrons' && hasDueSoon && (
-            <span className="tab-badge">!</span>
-          )}
-        </button>
-      ))}
-    </nav>
-  )
-}
 
+/* The first-open flow, in the order the player walks it. The number printed on the
+   shell comes from this list, so a step can never claim to be step 3 of 7 while
+   sitting sixth in the path. 'landing' is the door, not a step. */
+type OnboardingPhase =
+  | 'landing' | 'none' | 'pick-post' | 'pick-state' | 'pick-lga'
+  | 'pick-identity' | 'pick-party' | 'prologue' | 'profile-sheet' | 'entering-desk'
+
+const ONBOARD_FLOW: { phase: OnboardingPhase; kicker: string; title: string }[] = [
+  { phase: 'pick-post', kicker: 'STEP 1 OF 7 · THE POST', title: 'WHAT OFFICE WILL YOU HOLD?' },
+  { phase: 'pick-state', kicker: 'STEP 2 OF 7 · THE JURISDICTION', title: 'WHICH STATE?' },
+  { phase: 'pick-lga', kicker: 'STEP 3 OF 7 · THE COUNCIL', title: 'WHICH LOCAL GOVERNMENT?' },
+  { phase: 'pick-identity', kicker: 'STEP 4 OF 7 · THE PERSON', title: 'WHO ARE YOU?' },
+  { phase: 'pick-party', kicker: 'STEP 5 OF 7 · THE BANNER', title: 'WHICH PARTY CARRIES YOU?' },
+  { phase: 'prologue', kicker: 'STEP 6 OF 7 · THE RECORD', title: 'WHERE DID YOU COME FROM?' },
+  { phase: 'profile-sheet', kicker: 'STEP 7 OF 7 · THE RECORD', title: 'YOUR RECORD — INFORMANCE CF001' },
+]
+
+const ONBOARD_DOOR = { kicker: 'MANDATE · A LIFE IN OFFICE', title: 'WHERE DOES THIS DESK LIVE?' }
+
+/** 1-based position of a phase in the path; the door is not a step. */
+function indexOfStep(phase: OnboardingPhase): number {
+  return ONBOARD_FLOW.findIndex(s => s.phase === phase) + 1
+}
 
 const STORE_KEY = 'mandate.desk.v1'
 interface Persist {
@@ -145,10 +142,6 @@ function load(): Persist {
     }
   } catch { /* corrupt store — start clean */ }
   return emptyPersist()
-}
-
-function persistTabChange(p: Persist, tab: Tab): Persist {
-  return { ...p, tab }
 }
 
 /* ---------- transfer slip: one-time export that burns the desk it left (§3.7) ---------- */
@@ -297,6 +290,15 @@ function TrayCard({ doc, mark, decided, pending, weathered, onOpen }: {
 /* ---------- Briefings: the Situation Desk ---------- */
 const DESK_HOURS_TOTAL = 14
 
+/* Desk Hours: fourteen a week, spent by the decisions taken THIS week and by
+   the aide's glosses. Closing the week resets the book, which is why a leftover
+   hour is worth nothing in the morning (§13.1). */
+function deskHoursLeft(p: Persist): number {
+  const spent = DECISIONS.reduce((sum, d) => sum + (p.hoursBook[d.id] ? d.hours : 0), 0)
+  const left = DESK_HOURS_TOTAL - spent - (p.glossQuarters ?? 0) / 4
+  return Math.max(0, Math.floor(left + 1e-9))
+}
+
 function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
   p: Persist; onOpen: (id: string) => void; ticking: boolean; onCloseWeek: () => void
 }) {
@@ -393,101 +395,6 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
 
 /* ---------- Allies: the deputy-ticket zoning board ---------- */
 
-/* ---------- Budget ---------- */
-function BudgetScreen() {
-  // Running balance: sum every posted row that is NOT pending. Pending rows are
-  // excluded from the running balance (they are not charged until sanctioned).
-  // The closing shown here is BUDGET_CLOSING, which is computed in content.ts as
-  //   OPENING_BALANCE + FAAC_NET + IGR_SEPTEMBER + FEDERATION_REFUND
-  //   - (sum of the ten committed lines)
-  // and equals 8,275,860,000. Pending is NOT in BUDGET_CLOSING.
-  let bal = OPENING_BALANCE
-  const rows = BUDGET.map(r => {
-    if (!r.pending) bal += r.amount
-    return { ...r, running: bal }
-  })
-  // The running balance at the end of the non-pending rows MUST equal BUDGET_CLOSING.
-  // If a row was edited and this drifts, the test suite catches it below.
-  const close = BUDGET_CLOSING
-  const afterSanction = close - PENDING_TOTAL   // sanctioning REDUCES cash; pending never added
-  return (
-    <div className="bud-sheet">
-      <div className="bud-title">Consolidated Revenue Fund — State Treasury</div>
-      <div className="bud-sub">OCTOBER 2026 · WEEK 41 · ALL FIGURES TO THE NAIRA</div>
-      <div className="bud-open"><span>OPENING, 1 OCT</span><span>{formatNaira(OPENING_BALANCE)}</span></div>
-      <div className="bud-note">{OPENING_NOTE} · THE WAGE BILL IS ABOUT A THIRD OF THIS MONTH'S FAAC</div>
-      {rows.map((r, i) => (
-        <div className={`bud-row${r.pending ? ' pending' : ''}`} key={i}>
-          <span className="d">{r.date}</span>
-          <span className="m">
-            {r.memo}
-            {r.pending && <span className="bud-pending-tag">awaiting your sanction — not charged</span>}
-          </span>
-          <span className={`a ${r.amount >= 0 ? 'credit' : 'debit'}`}>{formatNaira(r.amount)}</span>
-        </div>
-      ))}
-      <div className="bud-close"><span>CLOSING, 8 OCT</span><span>{formatNaira(close)}</span></div>
-      <div className="bud-foot">
-        IF EVERY PENDING ITEM IS SANCTIONED: {formatNaira(afterSanction)}<br />
-        AUTHORITY: ss.121–125 — STATE APPROPRIATION (ANALOG OF ss.80–89) · FAAC SHORTFALL THIS MONTH: {nairaDisplay(SHORTFILL_NAIRA)}
-      </div>
-    </div>
-  )
-}
-
-/* ---------- Files (archive) ---------- */
-function FilesScreen({ p, onOpen, onOpenDrawer }: {
-  p: Persist; onOpen: (id: string) => void; onOpenDrawer: () => void
-}) {
-  const actedAll = [...DOCS, ...p.inTray]
-  const acted = actedAll.filter(d => {
-    const m = p.marks[d.id]
-    const decided = DECISIONS.some(x => x.docId === d.id && decStatus(x, p).done)
-    return (m && (m.stamps.length || m.annotations.length)) || decided
-  })
-  const filedHandover = Boolean(p.handoverDone)
-  return (
-    <>
-      <div className="screen-head">
-        <h2>Files</h2>
-        <p>THE CABINET — WHAT THE PAPER REMEMBERS</p>
-      </div>
-      <button className="dec-goto" style={{ margin: '10px 16px', width: 'calc(100% - 32px)' }} onClick={onOpenDrawer}>
-        OPEN THE DRAWER — SETTINGS &amp; ACCESSIBILITY
-      </button>
-      {acted.length === 0 && !filedHandover ? (
-        <div className="empty-note">The cabinet is empty.<br />Nothing has been stamped, signed or annotated yet.</div>
-      ) : (
-        <div className="file-list">
-          {filedHandover && (
-            <button className="file-row" onClick={() => onOpen(HANDOVER.id)}>
-              <span>
-                <span className="fr-title">{HANDOVER.title}</span><br />
-                <span className="fr-id">{HANDOVER.recordId}</span>
-              </span>
-              <span className="fr-state">FILED ✓</span>
-            </button>
-          )}
-          {acted.map(d => {
-            const m = p.marks[d.id]
-            const st = m?.stamps[0]
-            const decided = DECISIONS.some(x => x.docId === d.id && decStatus(x, p).done)
-            const state = st ? `STAMPED ${st.label}` : decided ? 'DECIDED' : 'ANNOTATED'
-            return (
-              <button className="file-row" key={d.id} onClick={() => onOpen(d.id)}>
-                <span>
-                  <span className="fr-title">{d.title}</span><br />
-                  <span className="fr-id">{d.recordId}</span>
-                </span>
-                <span className="fr-state">{state}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </>
-  )
-}
 
 
 // ---- onboarding step components (first-open shell) ----
@@ -507,25 +414,28 @@ function LandingStep({ week, approval, hasSave, onNew, onResume, onSlip }: {
   const [incoming, setIncoming] = useState('')
   const badSlip = incoming.trim().length > 8 && onSlip(incoming)
   return (
-    <div className="ob-step ob-landing">
-      <div className="ob-sub">MANDATE keeps its desks on-device — one life, no reload. A transfer slip carries a desk between phones. Accounts come later; when they do, they lift this desk to the ledger server.</div>
+    <div className="dv2-step">
+      <div className="dv2-landing-note">
+        MANDATE keeps its desks on-device — one life, no reload. A transfer slip carries a desk between phones.
+        Accounts come later; when they do, they lift this desk to the ledger server.
+      </div>
       {hasSave && (
-        <button className="ob-done" onClick={onResume}>
+        <button className="dv2-accept" onClick={onResume}>
           RESUME THIS DESK — WEEK {week} · APPROVAL {approval}%
         </button>
       )}
-      <button className="ob-choice" onClick={onNew}>
-        <div className="ob-choice-label">Begin a new file</div>
-        <div className="ob-choice-sub">Pick a post, type your record, take the desk.</div>
+      <button className="dv2-choice" onClick={onNew}>
+        <div className="dv2-choice-label">Begin a new file</div>
+        <div className="dv2-choice-sub">Pick a post, type your record, take the desk.</div>
       </button>
-      <div className="ob-field" style={{ marginTop: 12 }}>
-        <label className="ob-label">RECEIVE A TRANSFER SLIP</label>
+      <div className="dv2-field">
+        <label className="dv2-label">RECEIVE A TRANSFER SLIP</label>
         <input
-          className="ob-input" value={incoming} onChange={e => setIncoming(e.target.value)}
+          className="dv2-input" value={incoming} onChange={e => setIncoming(e.target.value)}
           placeholder="paste a MANDATE-SLIP-1. code"
           aria-label="Paste a transfer slip"
         />
-        {badSlip && <div className="ob-sub">Not a valid slip — check the code.</div>}
+        {badSlip && <div className="dv2-step-sub">Not a valid slip — check the code.</div>}
       </div>
     </div>
   )
@@ -539,25 +449,26 @@ function PickStateStep({ states, stateCode, onState, onBack, sub }: {
   sub?: string
 }) {
   return (
-    <div className="ob-step">
-      <div className="ob-sub">{sub ?? 'Pick the state you will govern. The 36 states, or the FCT as its Minister.'}</div>
-      <div className="ob-state-list">
+    <div className="dv2-step">
+      <div className="dv2-step-sub">{sub ?? 'Pick the state you will govern. The 36 states, or the FCT as its Minister.'}</div>
+      <div className="dv2-list">
         {states.map((s: FederationState) => (
           <button
             key={s.code}
-            className={`ob-state${stateCode === s.code ? ' selected' : ''}`}
+            className="dv2-list-row"
+            data-selected={stateCode === s.code}
             onClick={() => onState(s.code)}
           >
-            <div className="ob-state-name">{s.name}</div>
-            <div className="ob-state-meta">{s.capital} · {s.tier === 'fct' ? 'FCT' : 'State'}</div>
+            <span>
+              <span className="dv2-list-name">{s.name}</span>
+              <span className="dv2-list-meta">{s.capital} · {s.tier === 'fct' ? 'FCT' : 'State'}</span>
+            </span>
+            {stateCode === s.code && <span className="dv2-list-flag">CHOSEN</span>}
           </button>
         ))}
       </div>
-      {stateCode && (
-        <button className="ob-again" onClick={() => onState('')}>choose a different state</button>
-      )}
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back</button>
+      <div className="dv2-foot">
+        <button className="dv2-back-link" onClick={onBack}>back</button>
       </div>
     </div>
   )
@@ -573,23 +484,25 @@ function PostStep({ offices, onPost, onBack }: {
     .map(tier => ({ tier, items: offices.filter(o => o.tier === tier) }))
     .filter(g => g.items.length > 0)
   return (
-    <div className="ob-step">
-      <div className="ob-sub">Pick the office you will hold. The constitution fixes what it can do — the rest is yours.</div>
+    <div className="dv2-step">
+      <div className="dv2-step-sub">Pick the office you will hold. The constitution fixes what it can do — the rest is yours.</div>
       {groups.map(g => (
-        <div className="ob-post-group" key={g.tier}>
-          <div className="ob-choices-label">{TIER_LABEL[g.tier] ?? g.tier}</div>
-          <div className="ob-state-list">
+        <div className="dv2-step-group" key={g.tier}>
+          <div className="dv2-step-label">{TIER_LABEL[g.tier] ?? g.tier}</div>
+          <div className="dv2-list">
             {g.items.map(o => (
-              <button key={o.id} className="ob-state" onClick={() => onPost(o)}>
-                <div className="ob-state-name">{o.post}</div>
-                <div className="ob-state-meta">{o.route.toUpperCase()} · {o.jurisdiction.replace(/_/g, ' ').toUpperCase()}</div>
+              <button key={o.id} className="dv2-list-row" onClick={() => onPost(o)}>
+                <span>
+                  <span className="dv2-list-name">{o.post}</span>
+                  <span className="dv2-list-meta">{o.route.toUpperCase()} · {o.jurisdiction.replace(/_/g, ' ').toUpperCase()}</span>
+                </span>
               </button>
             ))}
           </div>
         </div>
       ))}
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back to the desk</button>
+      <div className="dv2-foot">
+        <button className="dv2-back-link" onClick={onBack}>back to the desk</button>
       </div>
     </div>
   )
@@ -613,31 +526,33 @@ function LgaStep({ state, onLga, onBack }: {
   const needle = query.trim().toLowerCase()
   const shown = (lgas ?? []).filter(l => l.name.toLowerCase().includes(needle))
   return (
-    <div className="ob-step">
-      <div className="ob-sub">Which local government? {state.name} council — the third tier, funded through the state joint account.</div>
-      <div className="ob-field">
-        <label className="ob-label">FILTER</label>
+    <div className="dv2-step">
+      <div className="dv2-step-sub">Which local government? {state.name} council — the third tier, funded through the state joint account.</div>
+      <div className="dv2-field">
+        <label className="dv2-label">FILTER</label>
         <input
-          className="ob-input" value={query} onChange={e => setQuery(e.target.value)}
+          className="dv2-input" value={query} onChange={e => setQuery(e.target.value)}
           placeholder="start typing a council name"
         />
       </div>
       {lgas === null ? (
-        <div className="ob-sub">Reading the council register…</div>
+        <div className="dv2-step-sub">Reading the council register…</div>
       ) : shown.length === 0 ? (
-        <div className="ob-sub">No council matches “{query}”.</div>
+        <div className="dv2-step-sub">No council matches “{query}”.</div>
       ) : (
-        <div className="ob-state-list">
+        <div className="dv2-list">
           {shown.map(l => (
-            <button key={l.id} className="ob-state" onClick={() => onLga(l)}>
-              <div className="ob-state-name">{l.name}</div>
-              <div className="ob-state-meta">{state.name} · LGA</div>
+            <button key={l.id} className="dv2-list-row" onClick={() => onLga(l)}>
+              <span>
+                <span className="dv2-list-name">{l.name}</span>
+                <span className="dv2-list-meta">{state.name} · LGA</span>
+              </span>
             </button>
           ))}
         </div>
       )}
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back</button>
+      <div className="dv2-foot">
+        <button className="dv2-back-link" onClick={onBack}>back</button>
       </div>
     </div>
   )
@@ -668,36 +583,36 @@ function IdentityStep({ stateName, office, name, age, pronouns, locale, bio, alt
     ? `${office.post.toUpperCase()} · ${stateName.toUpperCase()}`
     : `${office.post.toUpperCase()} OF ${stateName.toUpperCase()}`
   return (
-    <div className="ob-step">
-      <div className="ob-sub">You picked {postLine}. Now choose who you are — this is your record, typed by you, not pulled from a file.</div>
-      <div className="ob-post">POST — {postLine}</div>
-      <div className="ob-field">
-        <label className="ob-label">NAME</label>
-        <input className="ob-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
+    <div className="dv2-step">
+      <div className="dv2-step-sub">You picked {postLine}. Now choose who you are — this is your record, typed by you, not pulled from a file.</div>
+      <div className="dv2-step-post">POST — {postLine}</div>
+      <div className="dv2-field">
+        <label className="dv2-label">NAME</label>
+        <input className="dv2-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. M. A. Bamgboye" />
       </div>
-      <div className="ob-field">
-        <label className="ob-label">AGE</label>
-        <input className="ob-input" type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 52" />
+      <div className="dv2-field">
+        <label className="dv2-label">AGE</label>
+        <input className="dv2-input" type="number" value={age} onChange={e => setAge(e.target.value)} placeholder="e.g. 52" />
       </div>
-      <div className="ob-field">
-        <label className="ob-label">PRONOUNS</label>
-        <input className="ob-input" value={pronouns} onChange={e => setPronouns(e.target.value)} placeholder="e.g. he/him" />
+      <div className="dv2-field">
+        <label className="dv2-label">PRONOUNS</label>
+        <input className="dv2-input" value={pronouns} onChange={e => setPronouns(e.target.value)} placeholder="e.g. he/him" />
       </div>
-      <div className="ob-field">
-        <label className="ob-label">PHONE LOCALE</label>
-        <input className="ob-input" value={locale} onChange={e => setLocale(e.target.value)} placeholder="e.g. +234" />
+      <div className="dv2-field">
+        <label className="dv2-label">PHONE LOCALE</label>
+        <input className="dv2-input" value={locale} onChange={e => setLocale(e.target.value)} placeholder="e.g. +234" />
       </div>
-      <div className="ob-field">
-        <label className="ob-label">OTHER NAME</label>
-        <input className="ob-input" value={altName} onChange={e => setAltName(e.target.value)} placeholder="e.g. an alias, a former name" />
+      <div className="dv2-field">
+        <label className="dv2-label">OTHER NAME</label>
+        <input className="dv2-input" value={altName} onChange={e => setAltName(e.target.value)} placeholder="e.g. an alias, a former name" />
       </div>
-      <div className="ob-field">
-        <label className="ob-label">BIO / NOTES</label>
-        <textarea className="ob-textarea" value={bio} onChange={e => setBio(e.target.value)} placeholder="optional — your own note to yourself" rows={4} />
+      <div className="dv2-field">
+        <label className="dv2-label">BIO / NOTES</label>
+        <textarea className="dv2-textarea" value={bio} onChange={e => setBio(e.target.value)} placeholder="optional — your own note to yourself" rows={4} />
       </div>
-      <div className="ob-foot">
-        <button className="ob-done" disabled={!name.trim()} onClick={() => { onDone() }}>continue to my party</button>
-        <button className="ob-back" onClick={onBack}>back</button>
+      <div className="dv2-foot">
+        <button className="dv2-next" disabled={!name.trim()} onClick={() => { onDone() }}>continue to my party</button>
+        <button className="dv2-back-link" onClick={onBack}>back</button>
       </div>
     </div>
   )
@@ -707,25 +622,32 @@ function IdentityStep({ stateName, office, name, age, pronouns, locale, bio, alt
    The player picks their own party before the prologue now. The godfather / grassroots /
    technocrat step still shapes axes and patronage, but the party the desk travels under
    is the player's choice, not an NPC's. */
-function PartyStep({ parties, partyCode, onParty, onBack }: {
+function PartyStep({ parties, partyCode, onParty, onNext, onBack }: {
   parties: import('./profile').FederationParty[]
   partyCode: string | null
   onParty: (code: string) => void
+  onNext: () => void
   onBack: () => void
 }) {
   return (
-    <div className="ob-step">
-      <div className="ob-sub">Pick the party you will travel under. The prologue still shapes who brought you — this is the banner you choose.</div>
-      <div className="ob-choices">
+    <div className="dv2-step">
+      <div className="dv2-step-sub">Pick the party you will travel under. The prologue still shapes who brought you — this is the banner you choose.</div>
+      <div className="dv2-step-group">
         {parties.map((p: import('./profile').FederationParty) => (
-          <button key={p.code} className={`ob-choice${partyCode === p.code ? ' selected' : ''}`} onClick={() => onParty(p.code)}>
-            <div className="ob-choice-label">{p.name}</div>
-            <div className="ob-choice-sub">{p.note}</div>
+          <button
+            key={p.code}
+            className="dv2-choice"
+            data-selected={partyCode === p.code}
+            onClick={() => onParty(p.code)}
+          >
+            <div className="dv2-choice-label">{p.name}{partyCode === p.code ? ' · chosen' : ''}</div>
+            <div className="dv2-choice-sub">{p.note}</div>
           </button>
         ))}
       </div>
-      <div className="ob-foot">
-        <button className="ob-back" onClick={onBack}>back</button>
+      <div className="dv2-foot">
+        <button className="dv2-next" disabled={!partyCode} onClick={onNext}>continue to my prologue</button>
+        <button className="dv2-back-link" onClick={onBack}>back</button>
       </div>
     </div>
   )
@@ -750,52 +672,52 @@ function PrologueStep({ origin, bringer, scar, name, stateName, office, onOrigin
     ? `${office.post.toUpperCase()} · ${stateName.toUpperCase()}`
     : `${office.post.toUpperCase()} OF ${stateName.toUpperCase()}`
   return (
-    <div className="ob-step">
-      <div className="ob-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
-      <div className="ob-post">POST — {postLine}</div>
-      <div className="ob-choices">
-        <div className="ob-choices-label">Where did you come from?</div>
+    <div className="dv2-step">
+      <div className="dv2-step-sub">Who are you, {name || 'Governor'}? A short prologue sets your starting record.</div>
+      <div className="dv2-step-post">POST — {postLine}</div>
+      <div className="dv2-step-group">
+        <div className="dv2-step-label">Where did you come from?</div>
         {ORIGINS.map((o: typeof ORIGINS[number]) => (
-          <button key={o.id} className={`ob-choice${origin === o.id ? ' selected' : ''}`} onClick={() => onOrigin(o.id)}>
-            <div className="ob-choice-label">{o.label}</div>
-            <div className="ob-choice-sub">{o.sub}</div>
-            <div className="ob-effects">
-              {effectChips(o.deltas, o.patron).map((c, i) => <span key={i} className="ob-effect">{c}</span>)}
+          <button key={o.id} className="dv2-choice" data-selected={origin === o.id} onClick={() => onOrigin(o.id)}>
+            <div className="dv2-choice-label">{o.label}</div>
+            <div className="dv2-choice-sub">{o.sub}</div>
+            <div className="dv2-effects">
+              {effectChips(o.deltas, o.patron).map((c, i) => <span key={i} className="dv2-effect">{c}</span>)}
             </div>
           </button>
         ))}
       </div>
-      <div className="ob-choices">
-        <div className="ob-choices-label">Who brought you?</div>
+      <div className="dv2-step-group">
+        <div className="dv2-step-label">Who brought you?</div>
         {BRINGERS.map((b: typeof BRINGERS[number]) => (
-          <button key={b.id} className={`ob-choice${bringer === b.id ? ' selected' : ''}`} onClick={() => onBringer(b.id)}>
-            <div className="ob-choice-label">{b.label}</div>
-            <div className="ob-choice-sub">{b.sub}</div>
-            <div className="ob-effects">
-              {effectChips(b.deltas).map((c, i) => <span key={i} className="ob-effect">{c}</span>)}
+          <button key={b.id} className="dv2-choice" data-selected={bringer === b.id} onClick={() => onBringer(b.id)}>
+            <div className="dv2-choice-label">{b.label}</div>
+            <div className="dv2-choice-sub">{b.sub}</div>
+            <div className="dv2-effects">
+              {effectChips(b.deltas).map((c, i) => <span key={i} className="dv2-effect">{c}</span>)}
             </div>
           </button>
         ))}
       </div>
-      <div className="ob-choices">
-        <div className="ob-choices-label">Your first scar?</div>
+      <div className="dv2-step-group">
+        <div className="dv2-step-label">Your first scar?</div>
         {FIRST_SCARS.map((s: typeof FIRST_SCARS[number]) => (
-          <button key={s.id} className={`ob-choice${scar === s.id ? ' selected' : ''}`} onClick={() => onScar(s.id)}>
-            <div className="ob-choice-label">{s.label}</div>
-            <div className="ob-choice-sub">{s.sub}</div>
-            <div className="ob-effects">
-              {effectChips(s.deltas).map((c, i) => <span key={i} className="ob-effect">{c}</span>)}
+          <button key={s.id} className="dv2-choice" data-selected={scar === s.id} onClick={() => onScar(s.id)}>
+            <div className="dv2-choice-label">{s.label}</div>
+            <div className="dv2-choice-sub">{s.sub}</div>
+            <div className="dv2-effects">
+              {effectChips(s.deltas).map((c, i) => <span key={i} className="dv2-effect">{c}</span>)}
             </div>
           </button>
         ))}
       </div>
-      <div className="ob-foot">
+      <div className="dv2-foot">
         <button
-          className="ob-done"
+          className="dv2-next"
           disabled={!origin || !bringer || !scar}
           onClick={() => { onDone() }}
         >review your record</button>
-        <button className="ob-back" onClick={onBack}>back</button>
+        <button className="dv2-back-link" onClick={onBack}>back</button>
       </div>
     </div>
   )
@@ -807,46 +729,56 @@ function ProfileSheetStep({ sheet, onAccept, onBack }: {
   onBack: () => void
 }) {
   return (
-    <div className="ob-step">
-      <div className="ob-sub">Your record — INFORMANCE CF001 + security vetting. Signing this begins your life.</div>
-      <div className="ob-sheet">
-        <div className="ob-sheet-row"><span className="ob-sheet-k">NAME</span><span className="ob-sheet-v">{sheet.name}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">HANDLE</span><span className="ob-sheet-v">{sheet.handle}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">{sheet.stateLabel}</span><span className="ob-sheet-v">{sheet.state} ({sheet.capital})</span></div>
-        {sheet.lga && <div className="ob-sheet-row"><span className="ob-sheet-k">LGA</span><span className="ob-sheet-v">{sheet.lga}</span></div>}
-        {sheet.district && <div className="ob-sheet-row"><span className="ob-sheet-k">SENATORIAL DISTRICT</span><span className="ob-sheet-v">{sheet.district}</span></div>}
-        <div className="ob-sheet-row"><span className="ob-sheet-k">AGE</span><span className="ob-sheet-v">{sheet.age}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">OFFICE</span><span className="ob-sheet-v">{sheet.office} · {sheet.post} · {sheet.route}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">PARTY</span><span className="ob-sheet-v">{sheet.party} · defection risk {sheet.defectionRisk}</span></div>
-        <div className="ob-sheet-row"><span className="ob-sheet-k">PATRONAGE BANK</span><span className="ob-sheet-v">{sheet.patronageBank}</span></div>
-        <div className="ob-sheet-axes">
-          {sheet.axes.map((a: { label: string; value: string; band: string }, i: number) => (
-            <div key={i} className="ob-axis">
-              <span className={`ob-axis-band ${a.band.toLowerCase()}`}>{a.band}</span>
-              <span className="ob-axis-label">{a.label}</span>
-              <span className="ob-axis-value">{a.value}</span>
-            </div>
-          ))}
-        </div>
-        <div className="ob-legend">
-          BANDS — LOW · WEAK · EVEN · STRONG · HIGH (press tone runs HOSTILE → SUPPORTIVE). Every band below is already shaped by your origin, who brought you, and your first scar.
-        </div>
-        {sheet.patrons.length > 0 && (
-          <div className="ob-patrons">
-            <div className="ob-patrons-label">Patronage network</div>
+    <div className="dv2-step">
+      <div className="dv2-step-sub">Your record — INFORMANCE CF001 + security vetting. Signing this begins your life.</div>
+      <div className="dv2-record">
+        <div className="dv2-record-row"><span className="dv2-record-k">NAME</span><span className="dv2-record-v">{sheet.name}</span></div>
+        <div className="dv2-record-row"><span className="dv2-record-k">HANDLE</span><span className="dv2-record-v">{sheet.handle}</span></div>
+        <div className="dv2-record-row"><span className="dv2-record-k">{sheet.stateLabel}</span><span className="dv2-record-v">{sheet.state} ({sheet.capital})</span></div>
+        {sheet.lga && <div className="dv2-record-row"><span className="dv2-record-k">LGA</span><span className="dv2-record-v">{sheet.lga}</span></div>}
+        {sheet.district && <div className="dv2-record-row"><span className="dv2-record-k">SENATORIAL DISTRICT</span><span className="dv2-record-v">{sheet.district}</span></div>}
+        <div className="dv2-record-row"><span className="dv2-record-k">AGE</span><span className="dv2-record-v">{sheet.age}</span></div>
+        <div className="dv2-record-row"><span className="dv2-record-k">OFFICE</span><span className="dv2-record-v">{sheet.office} · {sheet.post} · {sheet.route}</span></div>
+        <div className="dv2-record-row"><span className="dv2-record-k">PARTY</span><span className="dv2-record-v">{sheet.party} · defection risk {sheet.defectionRisk}</span></div>
+        <div className="dv2-record-row"><span className="dv2-record-k">PATRONAGE BANK</span><span className="dv2-record-v">{sheet.patronageBank}</span></div>
+      </div>
+
+      <div className="dv2-step-label">THE AXES OF THIS RECORD</div>
+      <div className="dv2-axes">
+        {sheet.axes.map((a: { label: string; value: string; band: string }, i: number) => (
+          <div key={i} className="dv2-axis">
+            <span className={`dv2-axis-band ${a.band.toLowerCase()}`}>{a.band}</span>
+            <span className="dv2-axis-label">{a.label}</span>
+            <span className="dv2-axis-value">{a.value}</span>
+          </div>
+        ))}
+      </div>
+      <div className="dv2-legend">
+        BANDS — LOW · WEAK · EVEN · STRONG · HIGH (press tone runs HOSTILE → SUPPORTIVE). Every band below is already shaped by your origin, who brought you, and your first scar.
+      </div>
+
+      {sheet.patrons.length > 0 && (
+        <>
+          <div className="dv2-step-label">THE PATRONAGE NETWORK</div>
+          <div className="dv2-rows">
             {sheet.patrons.map((p: { name: string; role: string; loyalty: string }, i: number) => (
-              <div key={i} className="ob-patron">
-                <span className="ob-patron-name">{p.name}</span>
-                <span className="ob-patron-role">{p.role}</span>
-                <span className="ob-patron-loyalty">loyalty {p.loyalty}/5</span>
+              <div className="dv2-row" key={i} data-tone={Number(p.loyalty) >= 4 ? 'loyal' : Number(p.loyalty) >= 2 ? 'wavering' : 'angry'}>
+                <span className="dv2-row-main">
+                  <span className="dv2-row-title">{p.name}</span>
+                  <span className="dv2-row-line">{p.role}</span>
+                </span>
+                <span className="dv2-row-facts">
+                  <span className="dv2-row-state">loyalty {p.loyalty}/5</span>
+                </span>
               </div>
             ))}
           </div>
-        )}
-      </div>
-      <div className="ob-foot">
-        <button className="ob-accept" onClick={onAccept}>accept and enter the desk</button>
-        <button className="ob-back" onClick={onBack}>revise my record</button>
+        </>
+      )}
+
+      <div className="dv2-foot">
+        <button className="dv2-accept" onClick={onAccept}>accept and enter the desk</button>
+        <button className="dv2-back-link" onClick={onBack}>revise my record</button>
       </div>
     </div>
   )
@@ -890,19 +822,19 @@ function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssu
   }
 
   return (
-    <div className="drawer" role="dialog" aria-modal="true" aria-label="Settings">
-      <div className="drawer-sheet">
-        <div className="drawer-handle" />
-        <div className="drawer-title">THE DRAWER — SETTINGS</div>
+    <div className="dv2-drawer" role="dialog" aria-modal="true" aria-label="Settings">
+      <div className="dv2-drawer-sheet">
+        <div className="dv2-drawer-handle" />
+        <div className="dv2-drawer-title">THE DRAWER — SETTINGS</div>
 
-        <div className="drawer-label">ACCESSIBILITY</div>
-        <div className="drawer-row">
-          <div className="drawer-copy">
+        <div className="dv2-drawer-label">ACCESSIBILITY</div>
+        <div className="dv2-drawer-row">
+          <div className="dv2-drawer-copy">
             <b>Plain-language mode (Learner Mode)</b>
             <span>Glosses appear free — for anyone new to Nigerian public finance. It does not change the simulation.</span>
           </div>
           <button
-            className={`switch${settings.learnerMode ? ' on' : ''}`}
+            className={`dv2-switch${settings.learnerMode ? ' on' : ''}`}
             role="switch" aria-checked={settings.learnerMode}
             aria-label="Plain-language mode"
             onClick={() => onChange({ learnerMode: !settings.learnerMode })}
@@ -910,12 +842,12 @@ function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssu
             <span className="knob" />
           </button>
         </div>
-        <div className="drawer-row">
-          <div className="drawer-copy">
+        <div className="dv2-drawer-row">
+          <div className="dv2-drawer-copy">
             <b>Text size</b>
             <span>Scales documents and screens; the chrome stays put.</span>
           </div>
-          <div className="seg">
+          <div className="dv2-seg">
             {([100, 125, 150] as const).map(v => (
               <button
                 key={v}
@@ -926,13 +858,13 @@ function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssu
             ))}
           </div>
         </div>
-        <div className="drawer-row">
-          <div className="drawer-copy">
+        <div className="dv2-drawer-row">
+          <div className="dv2-drawer-copy">
             <b>Haptics</b>
             <span>Ticks while a hold is charging; the stamp’s thud on supported phones.</span>
           </div>
           <button
-            className={`switch${settings.haptics ? ' on' : ''}`}
+            className={`dv2-switch${settings.haptics ? ' on' : ''}`}
             role="switch" aria-checked={settings.haptics}
             aria-label="Haptics"
             onClick={() => onChange({ haptics: !settings.haptics })}
@@ -941,34 +873,37 @@ function SettingsDrawer({ settings, onChange, onClose, persist, onImport, onIssu
           </button>
         </div>
 
-        <div className="drawer-label">THE LIFE — ONE SAVE, NO RELOAD</div>
-        <div className="drawer-copy solo">
+        <div className="dv2-drawer-label">THE LIFE — ONE SAVE, NO RELOAD</div>
+        <div className="dv2-drawer-copy solo">
           Phones get stolen and data is expensive. A transfer slip is not save-scumming — it is succession:
           one encrypted export, and the desk it came from is burned.
         </div>
         {!issued ? (
-          <button className="dec-goto slip-btn" onClick={issue}>
+          <button className="dv2-act primary" onClick={issue}>
             <IcSlip width={16} height={16} /> ISSUE A TRANSFER SLIP
           </button>
         ) : (
-          <div className="slip-issue">
-            <textarea readOnly value={slip} aria-label="Transfer slip" onFocus={e => e.currentTarget.select()} />
-            <div className="slip-hint">
+          <div>
+            <textarea className="dv2-slip" readOnly value={slip} aria-label="Transfer slip" onFocus={e => e.currentTarget.select()} />
+            <div className="dv2-slip-hint">
               COPY THIS TONIGHT — IT WILL NOT BE SHOWN AGAIN. RECEIVING IT BURNS THIS DESK.
             </div>
-            <button className="dec-goto danger" onClick={burn}>I HAVE THE SLIP — BURN THIS DESK</button>
+            <button className="dv2-act danger" onClick={burn}>I HAVE THE SLIP — BURN THIS DESK</button>
           </div>
         )}
-        <div className="slip-receive">
-          <div className="drawer-copy"><b>Receive a slip — continue on this phone</b></div>
+        <div style={{ marginTop: 14 }}>
+          <div className="dv2-drawer-copy"><b>Receive a slip — continue on this phone</b></div>
           <textarea
+            className="dv2-slip"
             value={incoming} onChange={e => setIncoming(e.target.value)}
             placeholder="paste a MANDATE-SLIP-1. code here" aria-label="Paste a transfer slip"
           />
-          <button className="dec-goto" disabled={!incoming.trim()} onClick={receive}>RECEIVE THE SLIP</button>
+          <button className="dv2-act" disabled={!incoming.trim()} onClick={receive}>RECEIVE THE SLIP</button>
         </div>
 
-        <button className="dec-goto" onClick={onClose}>CLOSE THE DRAWER</button>
+        <div className="dv2-act-block">
+          <button className="dv2-act ghost" onClick={onClose}>CLOSE THE DRAWER</button>
+        </div>
       </div>
     </div>
   )
@@ -978,7 +913,6 @@ export default function App() {
   const [persist, setPersist] = useState<Persist>(load)
 
   // ---- first-open gate: profile + onboarding (Supabase-backed when configured) ----
-  type OnboardingPhase = 'landing' | 'none' | 'pick-post' | 'pick-identity' | 'pick-state' | 'pick-lga' | 'pick-party' | 'prologue' | 'profile-sheet' | 'entering-desk'
   const [onboarding, setOnboarding] = useState<{
     phase: OnboardingPhase
     states: import('./profile').FederationState[]
@@ -1001,6 +935,8 @@ export default function App() {
     error: string | null
   } | null>(null)
   const [tab, setTab] = useState<Tab>('desk')
+  /* bumps whenever a life is written, so the atlas re-reads the registry */
+  const [livesVersion, setLivesVersion] = useState(0)
   const [openId, setOpenId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null)
   const [ticking, setTicking] = useState(false)
@@ -1189,7 +1125,13 @@ export default function App() {
         : tier === 'local' ? 'PA (Ward Read)'
         : 'SSA (Polling)',
       isDeltaTutorial: isTutorial,
-    patrons: [],
+      /* the sheet prints the patronage bank as money; keep the number so the
+         patrons folder can carry it across thirteen weeks (§ money is naira) */
+      patronageBank: (() => {
+        const digits = (o.sheet?.patronageBank ?? '').replace(/[^0-9]/g, '')
+        return digits ? Number(digits) : undefined
+      })(),
+      patrons: [],
     }
     setPersist(pr => pr.sim ? pr : {
       ...pr,
@@ -1275,17 +1217,116 @@ export default function App() {
       : 'NOTHING TO DEFER — THE CARD IS A STAND-IN')
   }
 
-  const navTab: BottomTab = tab === 'patrons' || tab === 'press' || tab === 'ops' ? tab : 'desk'
+  /* Choosing a seat in the atlas starts a NEW LIFE: it appends a save row and leaves the
+     desk, the profile and every earlier life untouched. Nothing is ever wiped. */
+  const runForSeat = (positionId: string) => {
+    const seat = POSITIONS.find(p => p.id === positionId)
+    const registry = createNewLife(window.localStorage, {
+      playerName: persist.identity?.name || 'The Player',
+      positionId,
+      // the largest machine is the default until the party picker reads the catalogue
+      partyCode: 'PA',
+      startDate: '2026-01-01',
+      bank: 0,
+    })
+    const life = registry.lives.find(l => l.id === registry.activeId)
+    setLivesVersion(v => v + 1)
+    showToast(`NEW LIFE — ${life?.playerName ?? 'the player'} files for ${seat?.title ?? positionId}. ${registry.lives.length} on file.`)
+    setTab('desk')
+  }
+
   const shellTray = (deskV2 ? persist.inTray : authoredTrayDocs(persist))
     .slice(0, 5)
     .map(d => ({ id: d.id, title: d.title, trayLine: d.trayLine, mark: d.mark }))
 
+  /* ---------- the folders, all of them, in the desk's own clothes ---------- */
+  const seatLevel = deskLevelOf(persist.identity)
+  const seatCapital = persist.identity?.capital ?? 'Abuja'
+  const seatName = persist.identity?.name
+  const goTab = (t: Tab) => { setOpenId(null); setTab(t) }
+  const backToDesk = () => { setOpenId(null); setTab('desk') }
+
+  /* the treasury is read through the purse in the folders bar, not by leaving the desk */
+  const treasury = (
+    <TreasuryScreen
+      title="Consolidated Revenue Fund — State Treasury"
+      sub={`OCTOBER 2026 · WEEK ${deskWeek} · ALL FIGURES TO THE NAIRA`}
+      opening={OPENING_BALANCE}
+      openingLabel="OPENING, 1 OCT"
+      openingNote={OPENING_NOTE}
+      rows={BUDGET}
+      closing={BUDGET_CLOSING}
+      closingLabel="CLOSING"
+      pendingTotal={PENDING_TOTAL}
+      afterSanction={CLOSING_AFTER_SANCTION}
+      authority="ss.121–125 — STATE APPROPRIATION (ANALOG OF ss.80–89)"
+      shortfall={SHORTFILL_NAIRA}
+    />
+  )
+
+  /* the cabinet is built from the save: anything stamped, annotated or decided */
+  const cabinetRows: CabinetRow[] = (() => {
+    const rows: CabinetRow[] = []
+    if (persist.handoverDone) {
+      rows.push({ id: HANDOVER.id, title: HANDOVER.title, recordId: HANDOVER.recordId, state: 'FILED AWAY', tone: 'good' })
+    }
+    for (const d of [...DOCS, ...(persist.inTray ?? [])]) {
+      const mark = persist.marks[d.id]
+      const stamp = mark?.stamps[0]
+      const decided = DECISIONS.some(x => x.docId === d.id && decStatus(x, persist).done)
+      const annotated = (mark?.annotations.length ?? 0) > 0
+      if (!stamp && !decided && !annotated) continue
+      rows.push({
+        id: d.id,
+        title: d.title,
+        recordId: d.recordId,
+        state: stamp ? `STAMPED ${stamp.label}` : decided ? 'DECIDED' : 'ANNOTATED',
+        tone: stamp?.label === 'APPROVED' || decided ? 'good' : 'plain',
+      })
+    }
+    return rows
+  })()
+  const referenceDocs = allDocs().filter(d => d.kind !== 'tell').slice(0, 8)
+    .map(d => ({ id: d.id, title: d.title, authority: d.authority }))
+
+  /* the century: every life on file, newest first, read when the atlas opens */
+  const atlasLives: AtlasLife[] = useMemo(() => {
+    try {
+      const registry = loadLives(window.localStorage)
+      return lifeList(window.localStorage).map(life => ({
+        id: life.id,
+        summary: lifeSummary(life),
+        active: life.id === registry?.activeId,
+        ended: Boolean(life.retiredAt),
+      }))
+    } catch {
+      return []
+    }
+  }, [livesVersion, tab])
+
+  /* off the books — one run through the real machinery, recorded on the ops book.
+     The approval swing lands immediately; the probe, if it lands at all, becomes
+     an event the next week has to live with. No desk hours are charged: that is
+     the whole temptation, and the ops folder says so at the top. */
+  const runOp = (trick: DirtyTrick) => {
+    const snapshot = persist.sim ?? createDeskSim('state/governor', persist.identity?.state ?? 'Delta')
+    const outcome = executeOp(snapshot, trick)
+    const recorded: OpResult = { ok: outcome.ok, effect: outcome.effect, approval: outcome.approval, efcc: outcome.efcc }
+    setPersist(pr => ({
+      ...pr,
+      sim: outcome.snapshot,
+      ops: { ...(pr.ops ?? {}), [trick]: recorded },
+      publicApproval: Math.max(0, Math.min(100, (pr.publicApproval ?? 50) + outcome.approval)),
+    }))
+    showToast(`OFF THE BOOKS — ${outcome.effect.toUpperCase()}`)
+  }
+
   const screens: Record<Tab, React.ReactNode> = {
     desk: deskV2 ? (
       <DeskShell
-        level={deskLevelOf(persist.identity)}
+        level={seatLevel}
         week={deskWeek}
-        capital={persist.identity?.capital ?? 'Abuja'}
+        capital={seatCapital}
         budget={BUDGET_CLOSING}
         patrons={shellPatrons(persist.identity)}
         card={liveCard}
@@ -1299,53 +1340,114 @@ export default function App() {
         gazette={gazetteFor(persist)}
         tray={shellTray}
         onOpenDoc={openDoc}
-        activeTab={navTab}
-        onTabChange={t => { setOpenId(null); setTab(t) }}
+        onOpenCabinet={() => goTab('files')}
+        onOpenTreasury={() => goTab('budget')}
+        activeTab="desk"
+        onTabChange={goTab}
         onCloseWeek={closeWeek}
         ticking={ticking}
       />
     ) : <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
-    budget: <BudgetScreen />,
-    files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
-    patrons: <PatronsPanel sim={persist.sim} identity={persist.identity} />,
-    press: <PressGazette media={persist.sim?.state?.media as any ?? new MediaSystem()} />,
-    ops: <div className="dec-list" style={{ marginTop: 10 }}>
-        {Object.entries(persist.ops ?? {}).map(([key, st]) => {
-          return (
-            <div className="dec-card" key={key}>
-              <svg className="dec-clip" width="26" height="56" viewBox="0 0 34 74" aria-hidden>
-                <path d="M10 60 V16 a8 8 0 0 1 16 0 v44 a12 12 0 0 1-24 0 V20"
-                  fill="none" stroke="#7d7d7d" strokeWidth="3.4" strokeLinecap="round" />
-              </svg>
-              <div className="dec-q">{key}</div>
-              <div className="dec-grammar"><span className="gr-tag boxed">{st.effect?.substring(0, 20) || 'Operation'}</span></div>
-              <div className="constraint-pill" style={{ marginLeft: 4 }}>EXPOSURE: {st.efcc ? 'MONEY TRAIL EXISTS' : 'no exposure'}</div>
-              {!st.ok ? (
-                <div className="dec-opts">
-                  <HoldToCommit
-                    level={key === 'sponsor-protest' || key === 'plant-story' ? 2 : 3}
-                    className="dec-clause career"
-                    ariaLabel={`Order it — hold three seconds to order it`}
-                    onCommit={() => showToast('ORDERING — THE DESK WAITS. THE SIM DOES NOT.')}
-                  >
-                    <span className="do-label">Order it</span>
-                    <span className="do-sub">{st.effect || 'Operation'}</span>
-                  </HoldToCommit>
-                </div>
-              ) : (
-                <div className="dec-done">
-                  <div className="dec-choice">{st.effect}</div>
-                  <div className="dec-ledger">approval {st.approval > 0 ? `+${st.approval}` : st.approval} · {st.efcc ? 'EXPOSURE: THE MONEY TRAIL EXISTS' : 'no EFCC/ICPC exposure this run'}</div>
-                </div>
-              )}
-            </div>
-          )
-        })}</div>
-  }
 
-  const deskTabs = (
-    <TabBar p={persist} onTabChange={tab => persistTabChange(persist, tab)} />
-  )
+    budget: (
+      <FolderShell
+        tab="desk"
+        kicker="FOLDER · THE TREASURY"
+        title="THE CONSOLIDATED REVENUE FUND"
+        sub={`Every posted line, the pending items called out separately, and the closing balance. Week ${deskWeek} — no figure here is rounded.`}
+        level={seatLevel} week={deskWeek} capital={seatCapital} budget={BUDGET_CLOSING}
+        onTabChange={goTab} onBack={backToDesk} backLabel="BACK TO THE DESK"
+        onOpenTreasury={() => goTab('budget')}
+      >
+        {treasury}
+      </FolderShell>
+    ),
+
+    files: (
+      <FolderShell
+        tab="desk"
+        kicker="FOLDER · THE CABINET"
+        title="WHAT THE PAPER REMEMBERS"
+        sub="Every file you stamped, signed, annotated or decided, in the order the tray worked it — plus the reference shelf, which is never worked."
+        level={seatLevel} week={deskWeek} capital={seatCapital} budget={BUDGET_CLOSING}
+        onTabChange={goTab} onBack={backToDesk} backLabel="BACK TO THE DESK"
+        onOpenTreasury={() => goTab('budget')}
+      >
+        <CabinetScreen
+          rows={cabinetRows}
+          reference={referenceDocs}
+          onOpen={openDoc}
+          onOpenDrawer={() => setDrawer(true)}
+        />
+      </FolderShell>
+    ),
+
+    patrons: (
+      <FolderShell
+        tab="patrons"
+        kicker="FOLDER · THE BOOK OF OWED"
+        title="PATRONAGE"
+        sub="Who put you here, what they are owed, and when the returns fall due. Loyalty decides what the desk never has to say out loud."
+        level={seatLevel} week={deskWeek} capital={seatCapital} budget={BUDGET_CLOSING}
+        onTabChange={goTab} onOpenTreasury={() => goTab('budget')}
+      >
+        <PatronsScreen
+          patrons={shellPatrons(persist.identity)}
+          patronageBank={persist.identity?.patronageBank}
+          seatName={seatName}
+          approval={persist.publicApproval}
+        />
+      </FolderShell>
+    ),
+
+    press: (
+      <FolderShell
+        tab="press"
+        kicker="FOLDER · THE PRESS"
+        title="WHAT THE PAPERS SAY"
+        sub="This week's paper, printed as the desk prints it. A story is not the truth and it is not a lie — it is what survives the second day."
+        level={seatLevel} week={deskWeek} capital={seatCapital} budget={BUDGET_CLOSING}
+        onTabChange={goTab} onOpenTreasury={() => goTab('budget')}
+      >
+        <PressScreen
+          stories={persist.sim?.state?.media?.gazetteStories ?? []}
+          week={deskWeek}
+          seatName={seatName}
+        />
+      </FolderShell>
+    ),
+
+    ops: (
+      <FolderShell
+        tab="ops"
+        kicker="FOLDER · OFF THE BOOKS"
+        title="THE OTHER LEDGER"
+        sub="EFCC and ICPC keep this one. Nothing in here costs a Desk Hour, and that is exactly why every move prints its exposure before you touch it."
+        level={seatLevel} week={deskWeek} capital={seatCapital} budget={BUDGET_CLOSING}
+        onTabChange={goTab} onOpenTreasury={() => goTab('budget')}
+      >
+        <OpsScreen
+          ops={(persist.ops ?? {}) as Record<string, OpResult>}
+          onOrder={runOp}
+          approval={persist.publicApproval}
+          deskHoursLeft={deskHoursLeft(persist)}
+        />
+      </FolderShell>
+    ),
+
+    atlas: (
+      <AtlasScreen
+        lives={atlasLives}
+        onRunFor={runForSeat}
+        level={seatLevel}
+        week={deskWeek}
+        capital={seatCapital}
+        budget={BUDGET_CLOSING}
+        onTabChange={goTab}
+        onOpenTreasury={() => goTab('budget')}
+      />
+    ),
+  }
 
   const documentView = doc ? (
     <DocumentView
@@ -1387,32 +1489,53 @@ export default function App() {
         />
       )}
       {ticking && (
-        <div className="tick-overlay" aria-live="polite">
+        <div className="dv2-ticking" aria-live="polite">
           <div className="tick-stack">
             <span className="tick-sheet t1" />
             <span className="tick-sheet t2" />
             <span className="tick-sheet t3" />
             <span className="tick-sheet t4" />
           </div>
-          <div className="tick-lamp" />
-          <div className="tick-word">TIDYING THE DESK OVERNIGHT — WEEK 41 → FILED</div>
+          <div className="dv2-ticking-lamp" />
+          <div className="dv2-ticking-word">
+            TIDYING THE DESK OVERNIGHT — WEEK {deskWeek} → FILED
+          </div>
         </div>
       )}
       {flash > 0 && <span className="commit-flash" key={flash} />}
-      {toast && <div className="toast" key={toast.id} role="status" aria-live="polite">{toast.msg}</div>}
+      {toast && <div className="dv2-toast" key={toast.id} role="status" aria-live="polite">{toast.msg}</div>}
     </>
   )
+
+  /* the screen itself, without the phone's own chrome — the wide desk puts it in
+     its middle column, the phone renders it inside the surface below */
+  const screenNow = documentView ?? screens[tab]
 
   const surface = (
     <>
       {/* first-open onboarding shell: pick a federation post, run a short prologue, then enter the desk */}
       {onboarding && onboarding.phase !== 'none' && onboarding.phase !== 'entering-desk' ? (
-        <main className="app-main" key="onboarding">
+        <main className="app-main dv2" key="onboarding">
           <div className="zoom-layer">
-            <div className="onboarding-shell">
-              <h1 className="ob-title">NEW FILE — CHOOSE YOUR POST</h1>
+            <div className="dv2-onboard">
+              <header className="dv2-onboard-head">
+                <span className="dv2-onboard-kicker">{(ONBOARD_FLOW.find(s2 => s2.phase === onboarding.phase) ?? ONBOARD_DOOR).kicker}</span>
+                <h1 className="dv2-onboard-title">{(ONBOARD_FLOW.find(s2 => s2.phase === onboarding.phase) ?? ONBOARD_DOOR).title}</h1>
+                <span className="dv2-onboard-step">
+                  {onboarding.phase === 'landing'
+                    ? 'ONE LIFE, NO RELOAD · SAVED ON THIS DEVICE'
+                    : `${indexOfStep(onboarding.phase)} OF ${ONBOARD_FLOW.length} — ${ONBOARD_FLOW.length - indexOfStep(onboarding.phase)} TO GO`}
+                </span>
+                {onboarding.phase !== 'landing' && (
+                  <span className="dv2-onboard-track" aria-hidden>
+                    {ONBOARD_FLOW.map((step, i) => (
+                      <span key={step.phase} className={`dv2-onboard-tick${i < indexOfStep(onboarding.phase) ? ' on' : ''}`} />
+                    ))}
+                  </span>
+                )}
+              </header>
               {onboarding.error ? (
-                <div className="ob-error">{onboarding.error}</div>
+                <div className="dv2-error">{onboarding.error}</div>
               ) : onboarding.phase === 'landing' ? (
                 <LandingStep
                   week={persist.weekNumber ?? ANCHOR_WEEK}
@@ -1437,7 +1560,7 @@ export default function App() {
                     const route = postRoute(office)
                     if (route.kind === 'direct') {
                       // appointed/nationwide posts need no jurisdiction step (FCT seat = Abuja)
-                      return { ...o, phase: 'prologue', officeId: office.id, stateCode: route.stateCode, lgaName: null }
+                      return { ...o, phase: 'pick-identity', officeId: office.id, stateCode: route.stateCode, lgaName: null }
                     }
                     return { ...o, phase: 'pick-state', officeId: office.id, stateCode: null, lgaName: null }
                   })}
@@ -1462,14 +1585,14 @@ export default function App() {
                     if (route?.kind === 'state-then-lga') {
                       return { ...o, phase: 'pick-lga', stateCode }
                     }
-                    return { ...o, phase: 'prologue', stateCode }
+                    return { ...o, phase: 'pick-identity', stateCode }
                   })}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-post', stateCode:null, lgaName:null} : null))}
                 />
               ) : onboarding.phase === 'pick-lga' ? (
                 <LgaStep
                   state={onboarding.states.find(s => s.code === onboarding.stateCode) ?? DELTA_TUTORIAL_STATE}
-                  onLga={lga => setOnboarding(o => (o ? {...o, phase:'prologue', stateCode: lga.stateCode, lgaName: lga.name} : null))}
+                  onLga={lga => setOnboarding(o => (o ? {...o, phase:'pick-identity', stateCode: lga.stateCode, lgaName: lga.name} : null))}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-state', lgaName:null} : null))}
                 />
               ) : onboarding.phase === 'pick-identity' ? (
@@ -1489,13 +1612,21 @@ export default function App() {
                   setBio={v => setOnboarding(o => (o ? {...o, bio: v} : null))}
                   setAltName={v => setOnboarding(o => (o ? {...o, altName: v} : null))}
                   onDone={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'prologue', pronouns:'', locale:'', bio:'', altName:''} : null))}
+                  onBack={() => setOnboarding(o => {
+                    if (!o) return null
+                    // back goes to the step BEFORE this one: a post that needs a
+                    // jurisdiction returns to the jurisdiction, an appointed one to the list
+                    const office = o.offices.find(x => x.id === o.officeId)
+                    const route = office ? postRoute(office) : null
+                    return { ...o, phase: route?.kind === 'direct' ? 'pick-post' : 'pick-state', lgaName: null }
+                  })}
                 />
               ) : onboarding.phase === 'pick-party' ? (
                 <PartyStep
                   parties={onboarding.parties}
                   partyCode={onboarding.partyCode}
                   onParty={code => setOnboarding(o => (o ? {...o, partyCode: code} : null))}
+                  onNext={() => setOnboarding(o => (o ? {...o, phase:'prologue'} : null))}
                   onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
                 />
               ) : onboarding.phase === 'prologue' ? (
@@ -1510,7 +1641,7 @@ export default function App() {
                   onBringer={id => setOnboarding(o => (o ? {...o, bringer: id} : null))}
                   onScar={id => setOnboarding(o => (o ? {...o, scar: id} : null))}
                   onDone={() => setOnboarding(o => (o ? nextSheetState(o as import('./profile').OnboardingState) : null))}
-                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-identity'} : null))}
+                  onBack={() => setOnboarding(o => (o ? {...o, phase:'pick-party'} : null))}
                 />
               ) : onboarding.phase === 'profile-sheet' && onboarding.sheet ? (
                 <ProfileSheetStep
@@ -1524,20 +1655,10 @@ export default function App() {
           </div>
         </main>
       ) : (
-        <main className={`app-main${deskV2 && tab !== 'desk' && !documentView ? ' has-dv2-nav' : ''}`} key={tab}>
-          {deskV2 && tab !== 'desk' && !documentView && (
-            <BottomNav
-              activeTab={navTab}
-              budget={BUDGET_CLOSING}
-              week={persist.weekNumber ?? ANCHOR_WEEK}
-              onTabChange={t => { setOpenId(null); setTab(t) }}
-            />
-          )}
-          <div className="zoom-layer">
-            {documentView || (expanded && tab === 'desk'
-              ? <div className="surface-note">THE TRAY IS ON THE LEFT.<span>Pick a file; the tabs swap this surface.</span></div>
-              : screens[tab])}
-          </div>
+        /* the folders bar belongs to the folder screen itself (FolderShell / DeskShell),
+           so the surface never paints a second one underneath it */
+        <main className="app-main" key={tab}>
+          <div className="zoom-layer">{screenNow}</div>
         </main>
       )}
     </>
@@ -1548,33 +1669,109 @@ export default function App() {
       <div className="desk-bg">
         <div className="phone grain" data-scale={settings.textScale}>
           {expanded ? (
+            /* The wide desk: the same three columns it always had, but wearing the
+               new furniture — the in-tray and the handover papers on the left, the
+               surface in the middle, the reference shelf and the clock on the right. */
             <div className="app-body expanded">
-              <aside className="col col-tray">
-                <div className="col-head">IN-TRAY · {deskWeekLine(persist.identity, persist.weekNumber ?? ANCHOR_WEEK)}</div>
-                <div className="col-scroll">
-                  <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />
-                </div>
-              </aside>
-              <section className="col col-surface">{surface}</section>
-              <aside className="col col-shelf">
-                {deskTabs}
-                <div className="col-head">REFERENCE SHELF</div>
-                <div className="shelf-list">
-                  {allDocs().filter(d => d.kind !== 'tell').slice(0, 8).map(d => (
-                    <button key={d.id} className="shelf-card" onClick={() => openDoc(d.id)}>
-                      <b>{d.title}</b>
-                      <span>{d.authority}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="col-head">DEADLINES</div>
-                <div className="shelf-deadlines">
-                  {(persist.weekNumber ?? ANCHOR_WEEK) <= ANCHOR_WEEK
-                    ? <>ASUU ultimatum 15 Oct<br />NLC window closes 20 Oct<br />FAAC drops 21 Oct</>
-                    : simLiveLine(persist.sim)}
-                </div>
-                <button className="dec-goto" onClick={() => setDrawer(true)}>OPEN THE DRAWER — SETTINGS</button>
-              </aside>
+              <div className="dv2-cols">
+                <aside className="dv2-col" aria-label="In-tray">
+                  <div className="dv2-col-head">
+                    IN-TRAY
+                    <small>{deskWeekLine(persist.identity, deskWeek)}</small>
+                  </div>
+                  <div className="dv2-col-scroll">
+                    <section className="dv2-panel tight">
+                      <div className="dv2-panel-head">
+                        <span className="dv2-panel-title">ON THE DESK</span>
+                        <span className="dv2-panel-hint">{shellTray.length} file{shellTray.length === 1 ? '' : 's'}</span>
+                      </div>
+                      <div className="dv2-rows">
+                        {shellTray.map(d => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            className="dv2-row"
+                            data-tone={d.mark === 'urgent' ? 'urgent' : 'none'}
+                            onClick={() => openDoc(d.id)}
+                          >
+                            <span className="dv2-row-main">
+                              <span className="dv2-row-title">{d.title}</span>
+                              <span className="dv2-row-line">{d.trayLine}</span>
+                            </span>
+                            <span className="dv2-row-facts">
+                              <span className="dv2-row-state" data-tone={d.mark === 'urgent' ? 'bad' : undefined}>
+                                {d.mark === 'urgent' ? 'URGENT' : 'OPEN'}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section className="dv2-panel tight">
+                      <span className="dv2-panel-title">THE BOOK OF OWED</span>
+                      <div className="dv2-rows">
+                        {shellPatrons(persist.identity).slice(0, 4).map((patron, i) => (
+                          <button
+                            key={patron.id ?? i}
+                            type="button"
+                            className="dv2-row"
+                            data-tone={patron.loyalty >= 4 ? 'loyal' : patron.loyalty >= 2 ? 'wavering' : 'angry'}
+                            onClick={() => setTab('patrons')}
+                          >
+                            <span className="dv2-row-main">
+                              <span className="dv2-row-title">{patron.name}</span>
+                              <span className="dv2-row-line">{patron.role}</span>
+                            </span>
+                            <span className="dv2-row-facts">
+                              <span className="dv2-row-state">{patron.loyalty}/5</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section className="dv2-panel tight">
+                      <span className="dv2-panel-title">CLOSE THE WEEK</span>
+                      <div className="dv2-act-block">
+                        <HoldToCommit
+                          level={2}
+                          className="dv2-hold"
+                          ariaLabel="Close the week — tap to begin, hold 2s to confirm"
+                          onCommit={closeWeek}
+                        >
+                          {ticking ? 'FILING…' : 'CLOSE THE WEEK — THE SIM ADVANCES'}
+                        </HoldToCommit>
+                      </div>
+                    </section>
+                  </div>
+                </aside>
+
+                <section className="dv2-col" aria-label="Desk surface">
+                  <div className="dv2-col-scroll">{screenNow}</div>
+                </section>
+
+                <aside className="dv2-col" aria-label="Reference shelf">
+                  <div className="dv2-col-head">REFERENCE SHELF</div>
+                  <div className="dv2-col-scroll">
+                    {referenceDocs.map(d => (
+                      <button key={d.id} className="dv2-shelf-card" onClick={() => openDoc(d.id)}>
+                        <b>{d.title}</b>
+                        <span>{d.authority}</span>
+                      </button>
+                    ))}
+
+                    <div className="dv2-col-head" style={{ borderRadius: 10 }}>DEADLINES</div>
+                    <p className="dv2-shelf-note">
+                      {deskWeek <= ANCHOR_WEEK
+                        ? <>ASUU ultimatum 15 Oct<br />NLC window closes 20 Oct<br />FAAC drops 21 Oct</>
+                        : simLiveLine(persist.sim)}
+                    </p>
+
+                    <button className="dv2-act" onClick={() => setDrawer(true)}>OPEN THE DRAWER — SETTINGS</button>
+                  </div>
+                </aside>
+              </div>
               {overlays}
             </div>
           ) : (

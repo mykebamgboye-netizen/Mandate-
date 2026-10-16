@@ -137,12 +137,12 @@ interface Props {
 
 /* Level 2 (policy) on the hold-to-commit ladder: one full second of pressure
    before ink lands. Releasing early writes nothing (see hold.tsx). */
-export function StampButton({ label, blue, onStamp, disabled, onPress }: Props) {
+export function StampButton({ label, blue, onStamp, disabled, onPress, className }: Props & { className?: string }) {
   return (
     <HoldToCommit
       level={2}
       disabled={disabled}
-      className={`act-btn stamp-btn${blue ? ' blue' : ''}`}
+      className={className ?? `act-btn stamp-btn${blue ? ' blue' : ''}`}
       ariaLabel={`Hold to stamp ${label}`}
       onStart={() => onPress?.(true)}
       onCommit={() => {

@@ -43,6 +43,10 @@ export interface DeskShellProps {
   onOpenDoc?: (id: string) => void
   activeTab?: BottomTab
   onTabChange?: (tab: BottomTab) => void
+  /** open the cabinet — everything the paper remembers */
+  onOpenCabinet?: () => void
+  /** the purse in the folders bar opens the treasury ledger */
+  onOpenTreasury?: () => void
   onCloseWeek?: () => void
   ticking?: boolean
   /** the app shell renders its own bar for the other folders */
@@ -74,6 +78,8 @@ export function DeskShell({
   onOpenDoc,
   activeTab = 'desk',
   onTabChange,
+  onOpenCabinet,
+  onOpenTreasury,
   onCloseWeek,
   ticking = false,
   showNav = true,
@@ -127,7 +133,13 @@ export function DeskShell({
           <section className="dv2-tray" aria-label="In-tray">
             <div className="dv2-tray-head">
               <span>IN-TRAY</span>
-              <span className="dv2-tray-hint">{tray.length} file{tray.length === 1 ? '' : 's'} on the desk</span>
+              {onOpenCabinet ? (
+                <button type="button" className="dv2-tray-open" onClick={onOpenCabinet}>
+                  THE CABINET \u2192
+                </button>
+              ) : (
+                <span className="dv2-tray-hint">{tray.length} file{tray.length === 1 ? '' : 's'} on the desk</span>
+              )}
             </div>
             {tray.map(d => (
               <button
@@ -160,7 +172,13 @@ export function DeskShell({
       )}
 
       {showNav && onTabChange && (
-        <BottomNav activeTab={activeTab} budget={budget} week={week} onTabChange={onTabChange} />
+        <BottomNav
+          activeTab={activeTab}
+          budget={budget}
+          week={week}
+          onTabChange={onTabChange}
+          onOpenTreasury={onOpenTreasury}
+        />
       )}
     </div>
   )

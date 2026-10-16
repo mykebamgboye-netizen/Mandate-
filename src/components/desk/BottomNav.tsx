@@ -2,7 +2,7 @@
    Four folders, a large treasury pill in the centre and the week counter on the
    right. The pill is the one number the player should never have to hunt for. */
 
-export type BottomTab = 'desk' | 'patrons' | 'press' | 'ops'
+export type BottomTab = 'desk' | 'patrons' | 'press' | 'ops' | 'atlas'
 
 export interface BottomNavProps {
   activeTab: BottomTab
@@ -10,6 +10,8 @@ export interface BottomNavProps {
   budget: number
   week: number
   onTabChange: (tab: BottomTab) => void
+  /** when given, the purse becomes the way into the treasury ledger */
+  onOpenTreasury?: () => void
 }
 
 export const NAV_ITEMS: { id: BottomTab; label: string }[] = [
@@ -17,6 +19,7 @@ export const NAV_ITEMS: { id: BottomTab; label: string }[] = [
   { id: 'patrons', label: 'PATRONS' },
   { id: 'press', label: 'PRESS' },
   { id: 'ops', label: 'OPS' },
+  { id: 'atlas', label: 'ATLAS' },
 ]
 
 /** 8_275_860_000 → "₦8.28bn"; 500_000_000 → "₦500m" */
@@ -45,9 +48,16 @@ function TabButton({ id, label, active, onTabChange }: {
   )
 }
 
-export function BottomNav({ activeTab, budget, week, onTabChange }: BottomNavProps) {
+export function BottomNav({ activeTab, budget, week, onTabChange, onOpenTreasury }: BottomNavProps) {
   const left = NAV_ITEMS.slice(0, 2)
   const right = NAV_ITEMS.slice(2)
+  const purse = (
+    <>
+      <span className="dv2-nav-budget-sym" aria-hidden>₦</span>
+      <span className="dv2-nav-budget-value">{formatBudget(budget).replace('₦', '')}</span>
+      <span className="dv2-nav-budget-cap">TREASURY</span>
+    </>
+  )
   return (
     <nav className="dv2-nav" aria-label="Desk folders">
       <div className="dv2-nav-side">
@@ -56,11 +66,20 @@ export function BottomNav({ activeTab, budget, week, onTabChange }: BottomNavPro
         ))}
       </div>
 
-      <div className="dv2-nav-budget" aria-label={`Treasury: ${formatBudget(budget)}`}>
-        <span className="dv2-nav-budget-sym" aria-hidden>₦</span>
-        <span className="dv2-nav-budget-value">{formatBudget(budget).replace('₦', '')}</span>
-        <span className="dv2-nav-budget-cap">TREASURY</span>
-      </div>
+      {onOpenTreasury ? (
+        <button
+          type="button"
+          className="dv2-nav-budget"
+          aria-label={`Treasury: ${formatBudget(budget)} — open the ledger`}
+          onClick={onOpenTreasury}
+        >
+          {purse}
+        </button>
+      ) : (
+        <div className="dv2-nav-budget" aria-label={`Treasury: ${formatBudget(budget)}`}>
+          {purse}
+        </div>
+      )}
 
       <div className="dv2-nav-side right">
         {right.map(t => (
