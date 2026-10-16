@@ -58,3 +58,36 @@ export function makeStreams(seed: number): Streams {
 export function randInt(next: () => number, lo: number, hi: number): number {
   return lo + (next() % (hi - lo + 1))
 }
+
+/** Uniform index in [0, n). Deterministic and integer-only. */
+export function pickIndex(next: () => number, n: number): number {
+  if (n <= 0) throw new Error('pickIndex needs a positive range')
+  return next() % n
+}
+
+/** One element of a non-empty list. */
+export function pick<T>(next: () => number, items: readonly T[]): T {
+  if (items.length === 0) throw new Error('pick from an empty list')
+  return items[pickIndex(next, items.length)]
+}
+
+/** Probability test in basis points (0..10000). 10000 = always. */
+export function chanceBp(next: () => number, bp: number): boolean {
+  return next() % 10000 < bp
+}
+
+/** Copy of a list in a deterministic shuffled order (Fisher–Yates). */
+export function shuffled<T>(next: () => number, items: readonly T[]): T[] {
+  const out = [...items]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = pickIndex(next, i + 1)
+    const tmp = out[i]!; out[i] = out[j]!; out[j] = tmp
+  }
+  return out
+}
+
+/** Derive a named integer sub-seed from a master seed — for generators that want
+    their own stream (e.g. the NPC cast) without widening the StreamName union. */
+export function subSeed(seed: number, name: string): number {
+  return hash32(`${seed >>> 0}:${name}`)
+}
