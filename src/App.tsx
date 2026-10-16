@@ -29,6 +29,11 @@ import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor }
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
 import { PatronageStrip } from './PatronageStrip'
 import { PatronsPanel } from './PatronsPanel'
+import DeskShell from './components/desk/DeskShell'
+import { BottomNav, type BottomTab } from './components/desk/BottomNav'
+import type { DeskLevel } from './components/desk/FederalHeader'
+import type { Patron } from './components/desk/PatronRow'
+import type { GazetteContent } from './components/desk/Gazette'
 import {
   supabaseConfigured,
   listStates,
@@ -193,6 +198,42 @@ function findDoc(id: string, tray: Doc[] = []): Doc | undefined {
   return id === HANDOVER.id ? HANDOVER : [...allDocs(), ...tray].find(d => d.id === id)
 }
 
+/* ---------- the DeskCard surface (deskV2) ----------
+   Everything the shell prints is read off the save: the tier of the office, the
+   seat it reports from, the patrons owing and owed, the live decision. Nothing
+   below assumes Delta — the same desk serves the Federation, a state or an LGA. */
+function deskLevelOf(identity?: DeskIdentity): DeskLevel {
+  if (!identity) return 'state'
+  if (identity.lga) return 'lga'
+  const label = (identity.officeLabel ?? '').toUpperCase()
+  if (label.includes('FEDERAL') || label.includes('FCT')) return 'federal'
+  return 'state'
+}
+
+/** The authored Week 41 pack in tray order — the old desk and the shell share it. */
+function authoredTrayDocs(p: Persist): Doc[] {
+  const base = [...DOCS, SECTOR_BRIEF, TELL_PACK].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
+  return p.handoverDone ? base : [HANDOVER, ...base]
+}
+
+/** The patron row's data: the desk's own patrons, or none (the row demos itself). */
+function shellPatrons(identity?: DeskIdentity): Patron[] {
+  return (identity?.patrons ?? []).map(p => ({
+    id: p.id,
+    name: p.name,
+    role: p.role,
+    loyalty: p.loyalty,
+    ROI_due_weeks: p.ROI_due_weeks,
+  }))
+}
+
+/** This week's gazette story, when the simulation has printed one. */
+function gazetteFor(p: Persist): GazetteContent | null {
+  const story = p.sim?.state?.media?.gazetteStories?.[0]
+  if (!story) return null
+  return { headline: story.title, date: weekDateLine(p.weekNumber ?? ANCHOR_WEEK), body: story.description }
+}
+
 function decStatus(dec: Decision, p: Persist): { done: boolean; choice?: string; ledger?: string } {
   if (dec.special === 'gazette') {
     const st = p.marks[dec.docId]?.stamps[0]
@@ -267,9 +308,8 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
   const authored = deskV2 ? false : (week <= ANCHOR_WEEK && (identity?.isDeltaTutorial ?? true))
   const docs = useMemo(() => {
     if (!authored) return p.inTray
-    const base = [...DOCS, SECTOR_BRIEF, TELL_PACK].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
-    return p.handoverDone ? base : [HANDOVER, ...base]
-  }, [authored, p.handoverDone, p.inTray])
+    return authoredTrayDocs(p)
+  }, [authored, p])
   const urgentOpen = docs.filter(d =>
     d.mark === 'urgent' &&
     !p.marks[d.id]?.stamps.length &&
@@ -968,7 +1008,6 @@ export default function App() {
   const [literacy, setLiteracy] = useState(2)
   const [flash] = useState(0)
   const expanded = useExpanded()
-  console.log('DESK_V2', import.meta.env.VITE_ENABLE_DESK_V2)
   const toastTimer = useRef(0)
   const tickTimer = useRef(0)
 
@@ -1195,8 +1234,77 @@ export default function App() {
     setLiteracy,
   }
 
+  /* ---------- the DeskCard surface (deskV2) ---------- */
+  const deskWeek = persist.weekNumber ?? ANCHOR_WEEK
+  const liveDec = DECISIONS.find(d => !decStatus(d, persist).done)
+  const liveCard = liveDec
+    ? {
+        title: liveDec.question,
+        status: 'PENDING',
+        description: `On the desk now: ${liveDec.options[0]?.sub ?? 'no terms recorded'}.`
+          + (liveDec.options[1] ? ` The other hand is ${liveDec.options[1].sub}.` : ''),
+        impacts: liveDec.options
+          .flatMap(o => o.sub.split('·'))
+          .map(s => s.trim())
+          .filter(Boolean)
+          .slice(0, 4),
+      }
+    : null
+  const signKey = liveDec?.options[0]?.key
+  const rejectKey = liveDec ? liveDec.options[liveDec.options.length - 1]?.key : undefined
+
+  /* signing and rejecting write the decision the week-close already knows how to
+     read; deferring leaves it pending, which is exactly what a deferral is. */
+  const takeDecision = (key: string | undefined) => {
+    if (!liveDec || !key) {
+      showToast('NO LIVE DECISION ON THIS DESK — THE FILE IS A STAND-IN')
+      return
+    }
+    const opt = liveDec.options.find(o => o.key === key)
+    setPersist(pr => ({
+      ...pr,
+      decisions: { ...pr.decisions, [liveDec.id]: key },
+      hoursBook: { ...pr.hoursBook, [liveDec.id]: true },
+    }))
+    showToast(`RECORDED — ${(opt?.label ?? key).toUpperCase()} · ${liveDec.hours} DESK HOURS`)
+  }
+
+  const deferDecision = () => {
+    showToast(liveDec
+      ? 'DEFERRED — THE FILE STAYS ON THE DESK AND THE CLOCK KEEPS RUNNING'
+      : 'NOTHING TO DEFER — THE CARD IS A STAND-IN')
+  }
+
+  const navTab: BottomTab = tab === 'patrons' || tab === 'press' || tab === 'ops' ? tab : 'desk'
+  const shellTray = (deskV2 ? persist.inTray : authoredTrayDocs(persist))
+    .slice(0, 5)
+    .map(d => ({ id: d.id, title: d.title, trayLine: d.trayLine, mark: d.mark }))
+
   const screens: Record<Tab, React.ReactNode> = {
-    desk: <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
+    desk: deskV2 ? (
+      <DeskShell
+        level={deskLevelOf(persist.identity)}
+        week={deskWeek}
+        capital={persist.identity?.capital ?? 'Abuja'}
+        budget={BUDGET_CLOSING}
+        patrons={shellPatrons(persist.identity)}
+        card={liveCard}
+        cardDeadline={liveDec?.deadline}
+        signNote={liveDec?.options[0]?.label}
+        deferNote="stays on the desk"
+        rejectNote={liveDec?.options[liveDec.options.length - 1]?.label}
+        onSign={() => takeDecision(signKey)}
+        onDefer={deferDecision}
+        onReject={() => takeDecision(rejectKey)}
+        gazette={gazetteFor(persist)}
+        tray={shellTray}
+        onOpenDoc={openDoc}
+        activeTab={navTab}
+        onTabChange={t => { setOpenId(null); setTab(t) }}
+        onCloseWeek={closeWeek}
+        ticking={ticking}
+      />
+    ) : <DeskScreen p={persist} onOpen={openDoc} ticking={ticking} onCloseWeek={closeWeek} />,
     budget: <BudgetScreen />,
     files: <FilesScreen p={persist} onOpen={openDoc} onOpenDrawer={() => setDrawer(true)} />,
     patrons: <PatronsPanel sim={persist.sim} identity={persist.identity} />,
@@ -1416,7 +1524,15 @@ export default function App() {
           </div>
         </main>
       ) : (
-        <main className="app-main" key={tab}>
+        <main className={`app-main${deskV2 && tab !== 'desk' && !documentView ? ' has-dv2-nav' : ''}`} key={tab}>
+          {deskV2 && tab !== 'desk' && !documentView && (
+            <BottomNav
+              activeTab={navTab}
+              budget={BUDGET_CLOSING}
+              week={persist.weekNumber ?? ANCHOR_WEEK}
+              onTabChange={t => { setOpenId(null); setTab(t) }}
+            />
+          )}
           <div className="zoom-layer">
             {documentView || (expanded && tab === 'desk'
               ? <div className="surface-note">THE TRAY IS ON THE LEFT.<span>Pick a file; the tabs swap this surface.</span></div>
