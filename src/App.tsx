@@ -55,6 +55,10 @@ const TABS: { id: Tab; label: string; Icon: typeof IcBriefings }[] = [
   { id: 'ops', label: 'OPS', Icon: IcFiles },
 ]
 
+const VITE_ENABLE_DESK_V2 = import.meta.env.VITE_ENABLE_DESK_V2
+// Default to true when not set (e.g. production Vercel), so the new DeskCard UI renders by default
+const deskV2 = VITE_ENABLE_DESK_V2 ? VITE_ENABLE_DESK_V2 === 'true' : true
+
 function TabBar({ p, onTabChange }: {
   p: Persist
   onTabChange: (tab: Tab) => void
@@ -260,7 +264,7 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
   /* The authored Week 41 pack is the Delta tutorial: written for the Executive
      Governor of Delta State. Legacy saves (no identity on file) keep it; a
      non-tutorial profile runs the sim-fed desk from day one, in its own name. */
-  const authored = week <= ANCHOR_WEEK && (identity?.isDeltaTutorial ?? true)
+  const authored = deskV2 ? false : (week <= ANCHOR_WEEK && (identity?.isDeltaTutorial ?? true))
   const docs = useMemo(() => {
     if (!authored) return p.inTray
     const base = [...DOCS, SECTOR_BRIEF, TELL_PACK].sort((a, b) => ORDER[a.mark] - ORDER[b.mark])
@@ -964,6 +968,7 @@ export default function App() {
   const [literacy, setLiteracy] = useState(2)
   const [flash] = useState(0)
   const expanded = useExpanded()
+  console.log('DESK_V2', import.meta.env.VITE_ENABLE_DESK_V2)
   const toastTimer = useRef(0)
   const tickTimer = useRef(0)
 
