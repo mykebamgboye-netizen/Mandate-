@@ -39,6 +39,7 @@ import type { Doc, ClippingDoc, NoteDoc } from './content'
 import type { Axes, LifeEvent, PlayerTurn } from './sim/game-state'
 import type { StorageLike } from './profile/lives'
 import type { GazetteStory } from './types'
+import { loadSave } from './profile/lives'
 
 export const LIVING_KEY = 'mandate.living.v1'
 

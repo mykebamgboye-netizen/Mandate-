@@ -9,7 +9,9 @@
 //   federal/president — the Federation
 //   state/governor    — the 36 states (the FCT has no governorship: s.299)
 //   fct/minister      — the Federal Capital Territory, served by an appointed Minister
-//   local/chairman    — the 774 LGAsimport type { FederationOffice, Tier } from './types'
+//   local/chairman    — the 774 LGAs
+
+import type { FederationOffice, Tier } from './types'
 import { DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE } from './delta-tutorial'
 import { POSITIONS } from '../sim/positions'
 
@@ -24,7 +26,18 @@ export const FALLBACK_OFFICES: FederationOffice[] = POSITIONS
     s.id.startsWith('federal/rep/') ||
     s.id.startsWith('lga/'),
   )
-  .map(s => ({ ...s, playable: true } as FederationOffice))
+  .map(s => ({
+    id: s.id,
+    tier: s.tier as FederationOffice['tier'],
+    post: s.title,
+    route: s.appointmentType === 'elected' ? 'elected' : s.appointmentType === 'appointed' ? 'appointed' : 'nomination',
+    jurisdiction: s.jurisdiction as FederationOffice['jurisdiction'],
+    termNote: `${s.termYears}-year term`,
+    powers: s.powers,
+    revenueMap: {},
+    authorityNote: '',
+    playable: true,
+  }))
 export const FALLBACK_OFFICES_COUNT = FALLBACK_OFFICES.length
 
 

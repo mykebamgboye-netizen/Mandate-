@@ -69,7 +69,7 @@ import { executeOp } from './desk-sim'
 import type { DirtyTrick, GazetteStory } from './types'
 import { HoldToCommit } from './hold'
 import { IcSlip } from './icons'
-import { signInWithPassword, signUpWithPassword, signOut, getCurrentUser, waitForAuth } from './profile/auth'
+import { signInWithPassword, signUpWithPassword, signOut, getCurrentUser } from './profile/auth'
 
 type Tab = 'desk' | 'patrons' | 'press' | 'ops' | 'budget' | 'files' | 'atlas'
 
@@ -1245,19 +1245,13 @@ export default function App() {
         ? await signInWithPassword(email, password)
         : await signUpWithPassword(email, password)
       if (result.error) throw result.error
-      if (authAction === 'signup' && result.data?.user) {
-        // After sign-up, wait for the session to be visible, then the next mount refresh
-        // will pick up auth.uid() for the profiles row creation.
-        const { user } = await waitForAuth()
-        if (user) {
-          setAuthUser({ id: user.id, email: user.email ?? null, name: user.email ?? null })
-        }
-      }
+      // signUpWithPassword now signs the user in as part of the call, so the session is
+      // immediately visible — no waitForAuth polling, no email confirmation step.
       if (result.data?.user) {
         setAuthUser({ id: result.data.user.id, email: result.data.user.email ?? null, name: result.data.user.email ?? null })
       }
     } catch (err: any) {
-      setAuthError(err?.message ?? 'Authentication failed.') 
+      setAuthError(err?.message ?? 'Authentication failed.')
     } finally {
       setAuthLoading(false)
     }

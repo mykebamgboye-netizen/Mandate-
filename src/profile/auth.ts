@@ -43,7 +43,16 @@ export async function signUpWithPassword(email: string, password: string) {
   const client = publicClient()
   if (!client) return { data: null, error: new Error('Supabase not configured') }
   const { data, error } = await client.auth.signUp({ email, password })
-  return { data, error }
+  if (error) return { data: null, error }
+  // Confirmations are disabled at the Supabase project, so signUp returns a session +
+  // user immediately and the player is signed in as part of the same call.
+  if (data.user && data.session) {
+    return { data: { user: data.user, session: data.session }, error: null }
+  }
+  // Rare path where the provider still wants a separate confirm: sign in with the
+  // just-created credentials so we have a session now instead of polling on email.
+  const { data: loginData, error: loginError } = await client.auth.signInWithPassword({ email, password })
+  return { data: loginData, error: loginError ?? error }
 }
 
 /** Sign out the current session. */

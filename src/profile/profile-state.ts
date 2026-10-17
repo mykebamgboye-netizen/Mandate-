@@ -14,10 +14,8 @@ import { PLAYABLE_OFFICES, FALLBACK_OFFICES, FALLBACK_OFFICES_COUNT } from './pl
 // is re-exported from playable-offices). Keep PLAYABLE_OFFICES as the import name used by the
 // rest of the file for now, but route it through FALLBACK_OFFICES so pickers show the full
 // constitutional set rather than the four-office curated shortlist.
-const CURATED_PLAYABLE_OFFICES = PLAYABLE_OFFICES
-const FULL_DAY_ONE_PLAYABLE_OFFICES = FALLBACK_OFFICES
 // Re-export from FALLBACK so callers see the full set.
-export { FULL_DAY_ONE_PLAYABLE_OFFICES as PLAYABLE_OFFICES, FALLBACK_OFFICES, FALLBACK_OFFICES_COUNT }
+export { FALLBACK_OFFICES as PLAYABLE_OFFICES, FALLBACK_OFFICES, FALLBACK_OFFICES_COUNT }
 
 export type OnboardingPhase = 'landing' | 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet'
 
