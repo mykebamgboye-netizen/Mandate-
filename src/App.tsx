@@ -25,7 +25,8 @@ import {
   type SimSnapshot,
 } from './desk-sim'
 import { effectChips } from './profile/prologue'
-import { ensureReferenceOffices, FALLBACK_OFFICES, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
+import {
+  ensureReferenceOffices, FALLBACK_OFFICES, postRoute, stateChoicesFor } from './profile/profile-state'
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
 import { PatronageStrip } from './PatronageStrip'
 import DeskShell from './components/desk/DeskShell'
@@ -39,19 +40,26 @@ import OpsScreen, { type OpResult } from './components/desk/OpsScreen'
 import CabinetScreen, { type CabinetRow } from './components/desk/CabinetScreen'
 import TreasuryScreen from './components/desk/TreasuryScreen'
 import {
-  supabaseConfigured,
   listStates,
   listOffices,
   listParties,
   listLgas,
+  publicClient,
+  createProfile,
   defaultFederationReference,
 } from './profile/client'
+
+const isSupabaseConfigured = (): boolean =>
+  typeof import.meta.env.VITE_SUPABASE_URL === 'string' &&
+  typeof import.meta.env.VITE_SUPABASE_ANON_KEY === 'string'
+
 import { DELTA_TUTORIAL_STATE, DELTA_TUTORIAL_OFFICE } from './profile/delta-tutorial'
 import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from './game-context'
 import { DocumentView, type DocMarkState } from './DocumentView'
 import AtlasScreen, { type AtlasLife } from './components/atlas/AtlasScreen'
 import { POSITIONS } from './sim/positions'
-import { createNewLife, lifeList, lifeSummary, loadLives, currentLife } from './profile/lives'
+import { createNewLife, lifeList, lifeSummary, loadLives, saveLives, syncLivesToSupabase, loadLivesFromSupabase } from './profile/lives'
+import type { LifeRegistry } from './sim/game-state'
 import {
   closeLivingWeek, livingCast, loadWorld, seatIdForIdentity, upcomingPolls,
   restorePlayerFromSave,
@@ -61,6 +69,7 @@ import { executeOp } from './desk-sim'
 import type { DirtyTrick, GazetteStory } from './types'
 import { HoldToCommit } from './hold'
 import { IcSlip } from './icons'
+import { signInWithPassword, signUpWithPassword, signOut, getCurrentUser, waitForAuth } from './profile/auth'
 
 type Tab = 'desk' | 'patrons' | 'press' | 'ops' | 'budget' | 'files' | 'atlas'
 
@@ -430,22 +439,103 @@ function DeskScreen({ p, onOpen, ticking, onCloseWeek }: {
    v1 keeps saves on-device; the transfer slip is the portable path (§3.7).
    The landing names all three roads honestly instead of hiding them behind a
    new file: resume what is on this device, receive a slip, or start clean. */
-function LandingStep({ week, approval, hasSave, onNew, onResume, onSlip }: {
+function LandingStep({ week, approval, hasSave, onNew, onResume, onSlip,                  authUser, supabaseConfigured, onSignIn, onSignUp, onSignOut, authLoading, email, setEmail, password, setPassword, authAction, setAuthAction, authError, setAuthError }: {
   week: number
   approval: number
   hasSave: boolean
   onNew: () => void
   onResume: () => void
   onSlip: (code: string) => boolean
+  authUser: { id: string; email: string | null; name: string | null } | null
+  supabaseConfigured: boolean
+  onSignIn: () => void
+  onSignUp: () => void
+  onSignOut: () => void
+  authLoading: boolean
+  email: string
+  setEmail: (v: string) => void
+  password: string
+  setPassword: (v: string) => void
+  authAction: 'signin' | 'signup'
+  setAuthAction: (v: 'signin' | 'signup') => void
+  authError: string | null
+  setAuthError: (v: string | null) => void
 }) {
   const [incoming, setIncoming] = useState('')
   const badSlip = incoming.trim().length > 8 && onSlip(incoming)
   return (
     <div className="dv2-step">
-      <div className="dv2-landing-note">
-        MANDATE keeps its desks on-device — one life, no reload. A transfer slip carries a desk between phones.
-        Accounts come later; when they do, they lift this desk to the ledger server.
-      </div>
+      {/* Signed-in account panel: the player's ledger identity, with sign-out. */}
+      {supabaseConfigured && authUser ? (
+        <div className="dv2-landing-account">
+          <div className="dv2-landing-account-row">
+            <span className="dv2-landing-account-id">{authUser.email ?? authUser.id}</span>
+            <button className="dv2-act ghost" onClick={onSignOut} disabled={authLoading}>
+              {authLoading ? 'SIGNING OUT…' : 'SIGN OUT'}
+            </button>
+          </div>
+          <div className="dv2-landing-note">
+            Signed in · your desk and your lives are on the ledger server. The transfer slip still works for one-time exports.
+          </div>
+        </div>
+      ) : supabaseConfigured ? (
+        <div className="dv2-landing-auth">
+          <div className="dv2-landing-auth-title">SIGN IN TO YOUR ACCOUNT</div>
+          <div className="dv2-landing-auth-sub">
+            {authAction === 'signin'
+              ? 'Enter your email and password to reach your saved desk.'
+              : 'Create an account to keep your desk on the ledger server.'}
+          </div>
+          <div className="dv2-landing-auth-switch">
+            <button
+              className={`dv2-landing-auth-switch-btn${authAction === 'signin' ? ' on' : ''}`}
+              onClick={() => { setAuthAction('signin'); setAuthError(null) }}
+            >
+              Sign in
+            </button>
+            <span className="dv2-landing-auth-switch-sep">/</span>
+            <button
+              className={`dv2-landing-auth-switch-btn${authAction === 'signup' ? ' on' : ''}`}
+              onClick={() => { setAuthAction('signup'); setAuthError(null) }}
+            >
+              New account
+            </button>
+          </div>
+          <div className="dv2-field">
+            <label className="dv2-label">EMAIL</label>
+            <input
+              className="dv2-input" type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="you@example.com" autoComplete="email"
+            />
+          </div>
+          <div className="dv2-field">
+            <label className="dv2-label">PASSWORD</label>
+            <input
+              className="dv2-input" type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="at least 6 characters" autoComplete={authAction === 'signin' ? 'current-password' : 'new-password'}
+            />
+          </div>
+          {authError && <div className="dv2-error">{authError}</div>}
+          <button
+            className="dv2-accept"
+            onClick={authAction === 'signin' ? onSignIn : onSignUp}
+            disabled={authLoading || !email.trim() || password.length < 6}
+          >
+            {authLoading
+              ? 'WAITING…'
+              : authAction === 'signin' ? 'SIGN IN'
+              : 'CREATE ACCOUNT'}
+          </button>
+          <div className="dv2-landing-note">
+            No account yet? One sign-up, one desk on the server. When accounts and shared lives arrive, they lift this desk there.
+          </div>
+        </div>
+      ) : (
+        <div className="dv2-landing-note">
+          MANDATE keeps its desks on-device — one life, no reload. A transfer slip carries a desk between phones.
+          Accounts come later; when they do, they lift this desk to the ledger server.
+        </div>
+      )}
       {hasSave && (
         <button className="dv2-accept" onClick={onResume}>
           RESUME THIS DESK — WEEK {week} · APPROVAL {approval}%
@@ -972,6 +1062,15 @@ export default function App() {
   const [drawer, setDrawer] = useState(false)
   const [literacy, setLiteracy] = useState(2)
   const [flash] = useState(0)
+  // Supabase Auth: when configured, the player signs in and their profile/lives live on the
+  // ledger server instead of (or in addition to) this device. When not configured, the app
+  // boots to the local fallback unchanged.
+  const [authUser, setAuthUser] = useState<{ id: string; email: string | null; name: string | null } | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [authAction, setAuthAction] = useState<'signin' | 'signup'>('signin')
   const expanded = useExpanded()
   const toastTimer = useRef(0)
   const tickTimer = useRef(0)
@@ -1030,8 +1129,7 @@ export default function App() {
 
     const bootFromSupabase = async () => {
       try {
-        const configured = supabaseConfigured()
-        if (!configured) { bootLocalFallback(); return }
+          if (!(typeof import.meta.env.VITE_SUPABASE_URL === 'string' && typeof import.meta.env.VITE_SUPABASE_ANON_KEY === 'string')) { bootLocalFallback(); return }
         const [states, officesFromDb, parties] = await Promise.all([
           listStates(),
           listOffices(),
@@ -1068,8 +1166,11 @@ export default function App() {
       }
     }
 
+    // When the player is signed in, the onboarding still opens on the landing step — but
+    // the landing step now knows the player is authenticated and can offer account-aware
+    // actions (switch life, resume remote save, start new life on the server).
     bootFromSupabase()
-  }, [persist.profileHandle])
+  }, [persist.profileHandle, authUser])
 
   const showToast = (msg: string) => {
     setToast({ id: Date.now(), msg })
@@ -1077,6 +1178,105 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }
   useEffect(() => () => { window.clearTimeout(toastTimer.current); window.clearTimeout(tickTimer.current) }, [])
+
+  // Supabase Auth: keep the session fresh and surface the signed-in user. When Supabase
+  // is configured and the player is signed in, the profile + lives live on the ledger
+  // server; when it is not, the app stays on the local fallback unchanged.
+  useEffect(() => {
+    let alive = true
+    const refresh = async () => {        if (!(typeof import.meta.env.VITE_SUPABASE_URL === 'string' && typeof import.meta.env.VITE_SUPABASE_ANON_KEY === 'string')) {
+        if (alive) { setAuthLoading(false); setAuthUser(null) }
+        return
+      }
+      try {
+        const user = await getCurrentUser()
+        if (alive) {
+          setAuthLoading(false)
+          setAuthUser(user ? { id: user.id, email: user.email ?? null, name: user.email ?? null } : null)
+        }
+      } catch {
+        if (alive) { setAuthLoading(false); setAuthUser(null) }
+      }
+    }
+    refresh()
+    const interval = window.setInterval(refresh, 60_000)
+    return () => { alive = false; window.clearInterval(interval) }
+  }, [])
+
+  // When a user signs in, pull their lives from the ledger server into localStorage so the
+  // desk continues from the server state. When they sign out, the on-device lives stay as-is
+  // (the transfer slip is still the portable path).
+  useEffect(() => {
+    if (authUser === null) return
+    let cancelled = false
+    Promise.resolve().then(async () => {
+      const client = publicClient()
+      if (!client) return
+      const remote = await loadLivesFromSupabase(client, authUser!.id)
+      if (cancelled || !remote) return
+      const local = loadLives(window.localStorage)
+      if (!local) {
+        saveLives(window.localStorage, remote)
+        setLivesVersion(v => v + 1)
+        return
+      }
+      const localIds = new Set(local.lives.map(l => l.id))
+      const merged = [...local.lives]
+      for (const rl of remote.lives) {
+        if (!localIds.has(rl.id)) merged.push(rl)
+      }
+      const activeId = remote.activeId ?? local.activeId ?? merged[0]?.id ?? null
+      const registry: LifeRegistry = { activeId, lives: merged }
+      saveLives(window.localStorage, registry)
+      setLivesVersion(v => v + 1)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [authUser])
+
+  const handleAuthAction = async () => {
+    if (!email.trim() || password.length < 6) {
+      setAuthError('Enter an email and a password of at least 6 characters.')
+      return
+    }
+    setAuthLoading(true)
+    setAuthError(null)
+    try {
+      const result = authAction === 'signin'
+        ? await signInWithPassword(email, password)
+        : await signUpWithPassword(email, password)
+      if (result.error) throw result.error
+      if (authAction === 'signup' && result.data?.user) {
+        // After sign-up, wait for the session to be visible, then the next mount refresh
+        // will pick up auth.uid() for the profiles row creation.
+        const { user } = await waitForAuth()
+        if (user) {
+          setAuthUser({ id: user.id, email: user.email ?? null, name: user.email ?? null })
+        }
+      }
+      if (result.data?.user) {
+        setAuthUser({ id: result.data.user.id, email: result.data.user.email ?? null, name: result.data.user.email ?? null })
+      }
+    } catch (err: any) {
+      setAuthError(err?.message ?? 'Authentication failed.') 
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    setAuthLoading(true)
+    setAuthError(null)
+    try {
+      await signOut()
+      setAuthUser(null)
+      setEmail('')
+      setPassword('')
+    } catch (err: any) {
+      setAuthError(err?.message ?? 'Sign out failed.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
 
   /* §: ornaments mean something — a stain only once a file has held your attention */
   useEffect(() => {
@@ -1112,7 +1312,7 @@ export default function App() {
          the neutral defaults. */
       let livingInput = livingInputFor(persist.identity, result.approval)
       if (livingInput) {
-        restorePlayerFromSave(persist, livingInput, window.localStorage)
+        restorePlayerFromSave({ currentLifeId: persist.profileHandle ?? null }, livingInput, window.localStorage)
       }
       const living = (() => {
         if (!livingInput) return null
@@ -1210,6 +1410,54 @@ export default function App() {
       publicApproval: 50,
     })
     setOnboarding({ ...o, phase: 'entering-desk' })
+    // When signed in, persist the profile row on the ledger server so it survives across
+    // devices. The row is keyed on auth.uid() so RLS scopes it to this account.
+    if (authUser && isSupabaseConfigured()) {
+      const client = publicClient()
+      if (client) {
+        const profileAxes: import('./profile/types').ProfileAxes = {
+          competence: 5000, integrity: 5000, popularSupport: 5000, partyLoyalty: 5000,
+          eliteTrust: 5000, pressTone: 0, constituencyAlignment: 5000, patronageBank: identity.patronageBank ?? 0,
+          mandateLegitimacy: 6000, institutionalMemory: 3000,
+        }
+        const profileParty: import('./profile/types').ProfileParty = {
+          current: o.partyCode ?? identity.party,
+          history: [],
+          defectionRisk: 0.18,
+        }
+        const profileOffice: import('./profile/types').ProfileOffice = {
+          tier: tier as import('./profile/types').Tier,
+          post: identity.post,
+          elected: true,
+          termStart: '2026-10-08',
+          officeId: officeId,
+        }
+        createProfile({
+          handle: identity.name.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() || 'PLAYER',
+          identity: {
+            name: identity.name,
+            stateCode: stateRec?.code ?? null,
+            lgaName: identity.lga,
+            senatorialDistrict: null,
+            pronouns: null,
+            locale: null,
+            phoneHome: null,
+            altName: null,
+            bio: null,
+            age: 52,
+            chosenParty: profileParty.current,
+          },
+          office: profileOffice,
+          party: profileParty,
+          axes: profileAxes,
+          powers: DELTA_TUTORIAL_OFFICE.powers,
+          patronageBank: identity.patronageBank ?? 0,
+          profileId: authUser.id,
+        }).catch(() => {
+          /* silent: the desk stays on device even if the server profile write fails */
+        })
+      }
+    }
   }
 
   /* resume: an existing desk stays on its device — mark the gate so the boot
@@ -1300,6 +1548,16 @@ export default function App() {
     setLivesVersion(v => v + 1)
     showToast(`NEW LIFE — ${life?.playerName ?? 'the player'} files for ${seat?.title ?? positionId}. ${registry.lives.length} on file.`)
     setTab('desk')
+    // When signed in, push the lives registry to the ledger server so it survives across
+    // devices for this account. RLS scopes saves to profile_id = auth.uid().
+    if (authUser && typeof import.meta.env.VITE_SUPABASE_URL === 'string' && typeof import.meta.env.VITE_SUPABASE_ANON_KEY === 'string') {
+      const client = publicClient()
+      if (client) {
+        syncLivesToSupabase(client, authUser.id, registry).catch(() => {
+          /* silent: the desk stays on device even if the server sync fails */
+        })
+      }
+    }
   }
 
   /* Urgent first, then the order they arrived. The desk shows five files, so a week with a
@@ -1647,6 +1905,20 @@ export default function App() {
                     showToast('SLIP RECEIVED — YOUR RECORD CONTINUES HERE')
                     return true
                   }}
+                  authUser={authUser}
+                  supabaseConfigured={typeof import.meta.env.VITE_SUPABASE_URL === 'string' && typeof import.meta.env.VITE_SUPABASE_ANON_KEY === 'string'}
+                  onSignIn={handleAuthAction}
+                  onSignUp={handleAuthAction}
+                  onSignOut={handleSignOut}
+                  authLoading={authLoading}
+                  email={email}
+                  setEmail={setEmail}
+                  password={password}
+                  setPassword={setPassword}
+                  authAction={authAction}
+                  setAuthAction={setAuthAction}
+                  authError={authError}
+                  setAuthError={setAuthError}
                 />
               ) : onboarding.phase === 'pick-post' ? (
                 <PostStep

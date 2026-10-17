@@ -74,11 +74,12 @@ export function adminClient(): SupabaseClient {
 
 // ---- Supabase availability predicate (used by the app to pick the boot path). ----
 
-export const supabaseConfigured = (): boolean => {
+const supabaseConfiguredImpl = (): boolean => {
   const url = getEnv('VITE_SUPABASE_URL')
   const key = getEnv('VITE_SUPABASE_ANON_KEY')
   return Boolean(url && key)
 }
+export const supabaseConfigured: () => boolean = supabaseConfiguredImpl
 
 // ---- Federation reference reads: live when configured, local fallback otherwise. ----
 
@@ -217,6 +218,7 @@ export async function createProfile(input: {
   axes?: Partial<ProfileAxes>
   powers?: string[]
   patronageBank?: number
+  profileId?: string
 }): Promise<Profile> {
   const client = publicClient()
   if (!client) {
@@ -231,7 +233,7 @@ export async function createProfile(input: {
     const powers = input.powers ?? []
     const patronageBank = input.patronageBank ?? 0
     return {
-      id: 'local/' + input.handle,
+      id: input.profileId ?? 'local/' + input.handle,
       handle: input.handle ?? identity.name ?? 'UNKNOWN',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -248,17 +250,19 @@ export async function createProfile(input: {
     ...DEFAULT_AXES,
     ...(input.axes ?? {}),
   }
+  const insertBody: any = {
+    id: input.profileId,
+    handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
+    identity: input.identity,
+    office: input.office,
+    party: input.party,
+    axes,
+    powers: input.powers ?? [],
+    patronageBank: input.patronageBank ?? 0,
+  }
   const { data, error } = await client
     .from('profiles')
-    .insert({
-      handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
-      identity: input.identity,
-      office: input.office,
-      party: input.party,
-      axes,
-      powers: input.powers ?? [],
-      patronageBank: input.patronageBank ?? 0,
-    })
+    .insert(insertBody)
     .select()
     .single()
   if (error) throw error

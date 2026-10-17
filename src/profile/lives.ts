@@ -130,6 +130,78 @@ export function loadSave(
   return { axes: life.axes, bank: life.bank }
 }
 
+/** Push a lives registry to the Supabase saves table (one row per life, profile_id = profileId).
+ *  Used when Supabase Auth is active so lives survive across devices for the signed-in user.
+ *  Returns the number of rows touched (inserted + updated). Only for authenticated contexts:
+ *  RLS (migration 004) scopes saves to profile_id = auth.uid().
+ */
+export async function syncLivesToSupabase(
+  client: { from: (t: string) => any } | null,
+  profileId: string,
+  registry: LifeRegistry,
+): Promise<{ upserted: number }> {
+  if (!client) return { upserted: 0 }
+  let upserted = 0
+  for (const life of registry.lives) {
+    const { error } = await client.from('saves').upsert({
+      id: life.id,
+      profile_id: profileId,
+      player_name: life.playerName,
+      start_date: life.startDate,
+      date_current: life.date,
+      position_id: life.positionId,
+      party_code: life.partyCode,
+      axes: life.axes,
+      bank: life.bank,
+      history: life.history,
+      is_unemployed: life.isUnemployed,
+      unemployment_start: life.unemploymentStart,
+      retired_at: life.retiredAt,
+    }, { onConflict: 'id' })
+    if (!error) upserted++
+  }
+  return { upserted }
+}
+
+/** Pull lives from the Supabase saves table into a LifeRegistry. Returns null when Supabase
+ *  is not configured or the table is empty. The returned registry uses life ids as-is from the
+ *  database so they survive across devices; nextLifeId will continue from the count.
+ */
+export async function loadLivesFromSupabase(
+  client: { from: (t: string) => any } | null,
+  profileId: string,
+): Promise<LifeRegistry | null> {
+  if (!client) return null
+  const { data, error } = await client
+    .from('saves')
+    .select('*')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false })
+  if (error) return null
+  if (!data || data.length === 0) return null
+  const lives = data.map((r: any) => ({
+    id: r.id,
+    playerName: r.player_name,
+    startDate: r.start_date,
+    date: r.date_current,
+    positionId: r.position_id,
+    partyCode: r.party_code,
+    axes: r.axes,
+    bank: r.bank,
+    history: r.history ?? [],
+    isUnemployed: r.is_unemployed,
+    unemploymentStart: r.unemployment_start,
+    retiredAt: r.retired_at,
+    createdAt: r.created_at,
+    relationships: [],
+  }))
+  const activeId = lives[0]?.id ?? null
+  return {
+    activeId,
+    lives,
+  }
+}
+
 /** A one-line summary of a life for the legacy screen. */
 export function lifeSummary(life: SaveState): string {
   const last = life.history.length ? life.history[life.history.length - 1] : undefined
