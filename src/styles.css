@@ -29,6 +29,16 @@ body {
 }
 button { font-family: inherit; cursor: pointer; }
 
+/* Keyboard focus, everywhere. WCAG 2.2 · 2.4.7 asks for a visible indicator on every
+   keyboard-operable control, and this desk is driven by keyboard as much as by thumb.
+   The green ring clears 4.5:1 on the paper ground and 3:1 on the dark one, and the 2px
+   offset keeps it visible against both. Inputs keep their own focus outlines below. */
+:root { --focus-ring: var(--dv2-green, #0e7a47); }
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* ---------- desk backdrop + phone frame ---------- */
 .desk-bg {
   height: 100%;

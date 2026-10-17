@@ -276,7 +276,7 @@ describe('the weekly brain', () => {
   })
 
   it('sends a broke, corruptible office-holder to solicit a rich player', () => {
-    const { world, view } = craftedWorld()
+    const { world } = craftedWorld()
     world.players[0]!.bank = 10_000_000_000
     const npc = world.npcs.find(n => n.positionId && ageOf(n, 2026) < 60)!
     npc.bank = 1_000_000
@@ -378,6 +378,45 @@ describe('the weekly brain', () => {
     }
     expect(truce).toBeTruthy()
     expect(truce!.targetId).toBe(b.id)
+  })
+
+  it('never tells a man to turn on the man he is making peace with', () => {
+    /* b is the addressee. On b's own account c is a friend, so the only "shared enemy"
+       left in the matrix is b himself — which would print as "bury it with b, and turn on
+       b together". The search must come back empty rather than name the addressee. */
+    const world = createLivingWorld(SEED)
+    const [a, b, c] = world.npcs as [Npc, Npc, Npc]
+    for (const x of [a, b, c]) {
+      x.ambition = null
+      x.bank = 0
+      x.born = 2026 - 50
+      x.positionId = null
+      world.relationships.set(x.id, new Map())
+    }
+    withRelationship(world, a.id, b.id, -60)
+    withRelationship(world, a.id, c.id, -70)
+    withRelationship(world, b.id, c.id, -20)
+    withRelationship(world, c.id, b.id, -90)
+    const view = viewOf(world)
+
+    expect(findMutualEnemy(view, a.id)).toBe(b.id)
+    expect(findMutualEnemy(view, a.id, b.id)).toBeNull()
+
+    /* and the line the desk would print never names the man being offered the peace: the
+       one truce this fixture can support is a against b, not against the addressee. */
+    const nameOf = (id: string | undefined) => world.npcs.find(n => n.id === id)?.name ?? id
+    let truces = 0
+    for (let week = 1; week <= 300; week++) {
+      view.week = week
+      for (const action of npcWeekly(a, view)) {
+        if (action.type !== 'propose_truce') continue
+        truces += 1
+        const named = /turn on (.+) together\.$/.exec(action.detail)?.[1]
+        expect(named).toBeTruthy()
+        expect(named).not.toBe(nameOf(action.targetId))
+      }
+    }
+    expect(truces).toBeGreaterThan(0)
   })
 
   it('gates a governorship on terms already served', () => {
@@ -502,7 +541,11 @@ describe('the tick', () => {
   })
 
   it('runs a full century of Mondays (opt-in)', () => {
-    if (!process.env.SIM_CENTURY) return
+    // no node types are installed: the opt-in flag is read off the global, which is what
+    // carries it under both the test runner and a plain node invocation
+    const flag = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+      .process?.env?.SIM_CENTURY
+    if (!flag) return
     const summary = simulateCentury(SEED)
     expect(summary.weeks).toBe(5200)
     expect(summary.elections).toBeGreaterThan(500)
@@ -619,7 +662,8 @@ describe('the player\'s life', () => {
     const registry = retireLife(createRegistry(life), 'life-1', 'died in office')
     expect(registry.lives).toHaveLength(1)
     expect(registry.lives[0]!.retiredAt).toBe('2026-01-01')
-    expect(registry.lives[0]!.history.at(-1)!.summary).toBe('died in office')
+    const died = registry.lives[0]!.history
+    expect(died[died.length - 1]!.summary).toBe('died in office')
   })
 
   it('starts a protégé without resetting the world', () => {
@@ -657,7 +701,7 @@ describe('the player\'s life', () => {
     })
     expect(back.isUnemployed).toBe(false)
     expect(back.unemploymentStart).toBe(null)
-    expect(back.history.at(-1)!.kind).toBe('office')
+    expect(back.history[back.history.length - 1]!.kind).toBe('office')
   })
 
   it('maps a seat to the desk it runs', () => {

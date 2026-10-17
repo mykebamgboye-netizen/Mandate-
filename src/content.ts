@@ -129,6 +129,15 @@ export interface NoteDoc extends BaseDoc {
   from: string
   re: string
   lines: string[]
+  /** Living-world approaches only: the ask the note carries, recorded in the paper itself
+   *  so a stamp on it can be read back as an answer to the person who sent it. Authored
+   *  notes have no ask and are answered only by the decision book. */
+  ask?: {
+    npcId: string
+    npcName: string
+    kind: 'bribe' | 'favour' | 'leak' | 'truce' | 'outreach'
+    amountNaira?: number
+  }
 }
 
 export interface SectorDoc extends BaseDoc {

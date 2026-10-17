@@ -10,11 +10,14 @@
  * says so rather than printing ₦0 as if it were a balance.
  */
 
-import { patronTone, patronStatusLabel, DEMO_PATRONS, type Patron } from './PatronRow'
+import { patronTone, patronStatusLabel, DEMO_PATRONS, type Patron, type PatronTone } from './PatronRow'
+import type { CastMember } from '../../living-desk'
 
 export interface PatronsScreenProps {
   /** the desk's own patrons — empty means the demo roster stands in */
   patrons?: Patron[]
+  /** the actors the living world runs, as the desk knows them */
+  cast?: CastMember[]
   /** the patronage bank the record was opened with, if the save carries one */
   patronageBank?: number
   /** who sits at this desk, for the panel line */
@@ -25,14 +28,20 @@ export interface PatronsScreenProps {
   weeksInQuarter?: number
 }
 
-/** One patron's card. Loyalty is a meter and a word — never a bare number. */
-function PatronCard({ patron }: { patron: Patron }) {
-  const tone = patronTone(patron.loyalty)
-  const dots = Math.max(0, Math.min(5, Math.round(patron.loyalty)))
-  const status = patronStatusLabel(patron)
-  const due = typeof patron.ROI_due_weeks === 'number' && patron.ROI_due_weeks <= 2
-  const name = patron.name.trim()
+/** One name on either roster. Loyalty is a meter and a word — never a bare number — and
+ *  the two rosters share this card so a patron and an actor can never render differently. */
+function RosterCard({ name, role, loyalty, tone, status, terms, due }: {
+  name: string
+  role: string
+  loyalty: number
+  tone: PatronTone
+  status: string
+  terms: string
+  due: boolean
+}) {
+  const dots = Math.max(0, Math.min(5, Math.round(loyalty)))
   const initials = name
+    .trim()
     .replace(/^(Dr\.|Hajia|Chief|Hon\.|Alhaji|Elder|Mr\.|Mrs\.|Ms\.)\s+/i, '')
     .split(/\s+/)
     .map(part => part[0] ?? '')
@@ -45,8 +54,8 @@ function PatronCard({ patron }: { patron: Patron }) {
       <div className="dv2-patron-card-top">
         <span className="dv2-patron-face" aria-hidden>{initials}</span>
         <div>
-          <div className="dv2-patron-name">{patron.name}</div>
-          <div className="dv2-patron-role">{patron.role}</div>
+          <div className="dv2-patron-name">{name}</div>
+          <div className="dv2-patron-role">{role}</div>
         </div>
       </div>
       <span className="dv2-meter" aria-hidden>
@@ -55,11 +64,46 @@ function PatronCard({ patron }: { patron: Patron }) {
       <div className="dv2-chip" data-tone={due ? 'bad' : undefined}>
         {status}
       </div>
-      <div className="dv2-patron-terms">
-        loyalty {dots} of 5
-        {typeof patron.ROI_due_weeks === 'number' ? ` · return due in ${Math.max(0, patron.ROI_due_weeks)} week${patron.ROI_due_weeks === 1 ? '' : 's'}` : ''}
-      </div>
+      <div className="dv2-patron-terms">{terms}</div>
     </article>
+  )
+}
+
+function PatronCard({ patron }: { patron: Patron }) {
+  const tone = patronTone(patron.loyalty)
+  const dots = Math.max(0, Math.min(5, Math.round(patron.loyalty)))
+  return (
+    <RosterCard
+      name={patron.name}
+      role={patron.role}
+      loyalty={patron.loyalty}
+      tone={tone}
+      status={patronStatusLabel(patron)}
+      due={typeof patron.ROI_due_weeks === 'number' && patron.ROI_due_weeks <= 2}
+      terms={`loyalty ${dots} of 5${typeof patron.ROI_due_weeks === 'number' ? ` · return due in ${Math.max(0, patron.ROI_due_weeks)} week${patron.ROI_due_weeks === 1 ? '' : 's'}` : ''}`}
+    />
+  )
+}
+
+/** One actor from the living world. The dots are the desk's standing with them — the
+ *  number is printed beside them, because a meter nobody can read is a decoration. */
+function CastCard({ member }: { member: CastMember }) {
+  const tone = patronTone(member.loyalty)
+  const owed = member.owes > 0
+    ? `you owe ${nairaLine(member.owes)}`
+    : member.theyOweYou > 0
+      ? `owes you ${nairaLine(member.theyOweYou)}`
+      : 'nothing owed either way'
+  return (
+    <RosterCard
+      name={member.name}
+      role={member.role}
+      loyalty={member.loyalty}
+      tone={tone}
+      status={`trust ${member.trust > 0 ? '+' : ''}${member.trust}`}
+      due={typeof member.ROI_due_weeks === 'number' && member.ROI_due_weeks <= 2}
+      terms={owed}
+    />
   )
 }
 
@@ -74,6 +118,7 @@ function nairaLine(n: number): string {
 
 export function PatronsScreen({
   patrons = [],
+  cast = [],
   patronageBank,
   seatName,
   approval,
@@ -154,6 +199,25 @@ export function PatronsScreen({
           <PatronCard key={p.id ?? `${p.name}-${i}`} patron={p} />
         ))}
       </div>
+
+      {cast.length > 0 && (
+        <section className="dv2-panel" aria-label="The cast">
+          <div className="dv2-panel-head">
+            <span className="dv2-panel-title">THE CAST — WHO IS WATCHING</span>
+            <span className="dv2-panel-hint">{cast.length} of the actors the country runs</span>
+          </div>
+          <p className="dv2-panel-line">
+            These are not patrons and the dots are not loyalty. They are the desk’s standing
+            with the people holding the seats around it: one dot is −100 trust, five is +100,
+            and the number is printed so the dots cannot lie. Nobody here has to take your call.
+          </p>
+          <div className="dv2-patron-grid">
+            {cast.map(member => (
+              <CastCard key={member.id} member={member} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

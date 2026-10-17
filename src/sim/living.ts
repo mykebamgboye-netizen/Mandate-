@@ -169,7 +169,9 @@ export function viewOf(world: LivingWorld): NpcWorld {
     npcs: world.npcs,
     relationships: world.relationships,
     media: world.media,
-    players: world.players.map(p => ({ id: p.id, bank: p.bank, positionId: p.positionId })),
+    players: world.players.map(p => ({
+      id: p.id, bank: p.bank, positionId: p.positionId, name: p.name, partyCode: p.partyCode,
+    })),
   }
 }
 

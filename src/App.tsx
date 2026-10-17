@@ -52,8 +52,12 @@ import { DocumentView, type DocMarkState } from './DocumentView'
 import AtlasScreen, { type AtlasLife } from './components/atlas/AtlasScreen'
 import { POSITIONS } from './sim/positions'
 import { createNewLife, lifeList, lifeSummary, loadLives } from './profile/lives'
+import {
+  closeLivingWeek, livingCast, loadWorld, seatIdForIdentity, upcomingPolls,
+  type CastMember, type LivingPlayerInput,
+} from './living-desk'
 import { executeOp } from './desk-sim'
-import type { DirtyTrick } from './types'
+import type { DirtyTrick, GazetteStory } from './types'
 import { HoldToCommit } from './hold'
 import { IcSlip } from './icons'
 
@@ -104,6 +108,8 @@ interface Persist {
   identity?: DeskIdentity
   /** papers generated for the sim weeks (shocks → digests, stories → clippings, polls → memo) */
   inTray: Doc[]
+  /** what the living country's press printed this week — read by the press folder */
+  livingPress?: GazetteStory[]
   /** decisions whose desk hours were charged this week (hours reset at the rollover) */
   hoursBook: Record<string, true>
   /** off-the-books results, keyed by trick — one run each per week */
@@ -218,6 +224,26 @@ function shellPatrons(identity?: DeskIdentity): Patron[] {
     loyalty: p.loyalty,
     ROI_due_weeks: p.ROI_due_weeks,
   }))
+}
+
+/** The living world's view of whoever sits at this desk. Null before a profile has been
+    accepted: the country does not start running until somebody is sitting at the desk. */
+function livingInputFor(identity: DeskIdentity | undefined, approval: number): LivingPlayerInput | null {
+  if (!identity) return null
+  return {
+    name: identity.name,
+    positionId: seatIdForIdentity({
+      positionId: identity.positionId,
+      post: identity.post,
+      state: identity.state,
+      lga: identity.lga,
+    }),
+    partyCode: identity.party,
+    approval,
+    /* The record's patronage bank is the only sum the desk's own accounting calls the
+       player's money. The treasury's balance belongs to the state, not to the person. */
+    bank: identity.patronageBank ?? 0,
+  }
 }
 
 /** This week's gazette story, when the simulation has printed one. */
@@ -937,6 +963,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('desk')
   /* bumps whenever a life is written, so the atlas re-reads the registry */
   const [livesVersion, setLivesVersion] = useState(0)
+  /* bumps whenever the country advances, so the folders re-read the cast and the calendar */
+  const [worldVersion, setWorldVersion] = useState(0)
   const [openId, setOpenId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null)
   const [ticking, setTicking] = useState(false)
@@ -1073,24 +1101,53 @@ export default function App() {
       )
       const prior = persist.sim ?? createDeskSim('state/governor', 'Delta')
       const result = closeWeekSim(prior, freshChoices, persist.identity)
+      /* One Monday of the living country, at the same instant the desk's own week closes.
+         The cast is 250 actors and the tick is milliseconds, so it runs here rather than in
+         a worker. The tray being closed is handed over with its stamps: an approach answered
+         on paper is answered to the man who sent it before his Monday is run. A desk that
+         cannot reach its storage still closes its week: the world is skipped, never blamed. */
+      const living = (() => {
+        const input = livingInputFor(persist.identity, result.approval)
+        if (!input) return null
+        try {
+          return closeLivingWeek({
+            storage: window.localStorage,
+            player: input,
+            tray: persist.inTray,
+            marks: persist.marks,
+          })
+        } catch {
+          return null
+        }
+      })()
       const nextWeek = (persist.weekNumber ?? ANCHOR_WEEK) + 1
       const appliedNext: Record<string, true> = { ...applied }
       for (const id of Object.keys(freshChoices)) appliedNext[id] = true
       setTicking(false)
+      setWorldVersion(v => v + 1)
       setPersist(pr => ({
         ...pr,
         sim: result.snapshot,
+        /* the answers moved money and standing: the strip shows the bank the world just
+           spent from, and a leak the desk let run shows up where every other read of the
+           public shows up */
+        identity: living && pr.identity && typeof living.bank === 'number'
+          ? { ...pr.identity, patronageBank: living.bank }
+          : pr.identity,
+        publicApproval: Math.max(0, Math.min(100, result.approval + (living?.approvalDelta ?? 0))),
         weekNumber: nextWeek,
-        inTray: result.documents,
+        // the sim's own papers, then whatever the country put on the tray this week
+        inTray: [...result.documents, ...(living?.papers ?? [])],
+        livingPress: living?.stories ?? [],
         decisionsApplied: appliedNext,
         // the new week: fresh hours, fresh reading stains, fresh op book
         hoursBook: {},
         ops: {},
         glossQuarters: 0,
         weathered: [],
-        publicApproval: result.approval,
       }))
-      showToast(`WEEK ${nextWeek} FILED — ${result.headline.toUpperCase()}`)
+      const urgent = living?.papers.filter(d => d.mark === 'urgent').length ?? 0
+      showToast(`WEEK ${nextWeek} FILED — ${result.headline.toUpperCase()}${urgent > 0 ? ` · ${urgent} URGENT FROM THE COUNTRY` : ''}`)
     }, 1900)
   }
 
@@ -1113,6 +1170,9 @@ export default function App() {
       state: stateName,
       capital: stateRec?.capital ?? 'Asaba',
       lga: o.lgaName,
+      /* the catalogue seat this desk sits at, resolved once, here, rather than re-read
+         from the identity's prose on every week the country runs */
+      positionId: seatIdForIdentity({ post: officeRec?.post, state: stateName, lga: o.lgaName }),
       party: o.parties.find(p => p.code === o.partyCode)?.name ?? o.sheet?.party ?? 'INDEPENDENT',
       honorific: tier === 'local' ? 'The Honourable Chairman'
         : tier === 'fct' ? 'The Honourable Minister'
@@ -1235,7 +1295,12 @@ export default function App() {
     setTab('desk')
   }
 
+  /* Urgent first, then the order they arrived. The desk shows five files, so a week with a
+     request for money and a paper from the country must not bury the request under the
+     week's digest. Array.prototype.sort is stable, so equal marks keep their order. */
   const shellTray = (deskV2 ? persist.inTray : authoredTrayDocs(persist))
+    .slice()
+    .sort((a, b) => (b.mark === 'urgent' ? 1 : 0) - (a.mark === 'urgent' ? 1 : 0))
     .slice(0, 5)
     .map(d => ({ id: d.id, title: d.title, trayLine: d.trayLine, mark: d.mark }))
 
@@ -1289,6 +1354,20 @@ export default function App() {
   const referenceDocs = allDocs().filter(d => d.kind !== 'tell').slice(0, 8)
     .map(d => ({ id: d.id, title: d.title, authority: d.authority }))
 
+  /* the country this desk is running, read from its own key so the folders can show the
+     cast and the calendar without waiting for a week to close. Before the first close there
+     is no world on file: the calendar still answers, the cast is empty, and the folder says
+     so rather than inventing names. */
+  const { cast: livingCastNow, polls: livingPolls } = useMemo(() => {
+    try {
+      const world = loadWorld(window.localStorage)
+      if (!world) return { cast: [] as CastMember[], polls: upcomingPolls('2026-01-01', 4) }
+      return { cast: livingCast(world, 8), polls: upcomingPolls(world.date, 4) }
+    } catch {
+      return { cast: [] as CastMember[], polls: upcomingPolls('2026-01-01', 4) }
+    }
+  }, [worldVersion, tab])
+
   /* the century: every life on file, newest first, read when the atlas opens */
   const atlasLives: AtlasLife[] = useMemo(() => {
     try {
@@ -1321,6 +1400,14 @@ export default function App() {
     showToast(`OFF THE BOOKS — ${outcome.effect.toUpperCase()}`)
   }
 
+  /* The week's paper: the simulation's own stories, then what the living country's press
+     printed. A leak on a rival is as much of the week's paper as a shock is, and both are
+     read the same way — as clippings. */
+  const pressStories: GazetteStory[] = [
+    ...(persist.sim?.state?.media?.gazetteStories ?? []),
+    ...(persist.livingPress ?? []),
+  ]
+
   const screens: Record<Tab, React.ReactNode> = {
     desk: deskV2 ? (
       <DeskShell
@@ -1328,7 +1415,7 @@ export default function App() {
         week={deskWeek}
         capital={seatCapital}
         budget={BUDGET_CLOSING}
-        patrons={shellPatrons(persist.identity)}
+        patrons={livingCastNow.length > 0 ? livingCastNow : shellPatrons(persist.identity)}
         card={liveCard}
         cardDeadline={liveDec?.deadline}
         signNote={liveDec?.options[0]?.label}
@@ -1393,6 +1480,7 @@ export default function App() {
       >
         <PatronsScreen
           patrons={shellPatrons(persist.identity)}
+          cast={livingCastNow}
           patronageBank={persist.identity?.patronageBank}
           seatName={seatName}
           approval={persist.publicApproval}
@@ -1410,7 +1498,7 @@ export default function App() {
         onTabChange={goTab} onOpenTreasury={() => goTab('budget')}
       >
         <PressScreen
-          stories={persist.sim?.state?.media?.gazetteStories ?? []}
+          stories={pressStories}
           week={deskWeek}
           seatName={seatName}
         />
@@ -1438,6 +1526,7 @@ export default function App() {
     atlas: (
       <AtlasScreen
         lives={atlasLives}
+        polls={livingPolls}
         onRunFor={runForSeat}
         level={seatLevel}
         week={deskWeek}

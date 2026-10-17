@@ -125,7 +125,10 @@ export interface GazetteStory {
   id: string
   title: string
   impact: 'market' | 'approval' | 'both'
-  magnitude: 1 | 2 | 3
+  /** Signed, because the press folder totals it: a positive story costs the desk and a
+   *  negative one is coverage that helped it, so "net polling" means what it says. Every
+   *  producer of a story today writes 1–3 — a paper that hurt. */
+  magnitude: number
   description: string
   affectedSectors: string[]
 }

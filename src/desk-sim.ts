@@ -43,6 +43,8 @@ export interface DeskIdentity {
   pollsterTitle: string
   /** true only for the authored Delta tutorial scenario */
   isDeltaTutorial: boolean
+  /** the seat in the office catalogue this desk sits at — what the living world runs you as */
+  positionId?: string | null
   /** list of patrons sitting at this desk */
   patrons: { id: string; name: string; role: string; loyalty: number; ROI_due_weeks: number }[]
   /** the patronage bank the record was opened with, in naira — absent on saves

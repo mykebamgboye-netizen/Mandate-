@@ -134,7 +134,9 @@ export interface NpcWorld {
   npcs: Npc[]
   relationships: Map<string, Map<string, Relationship>>
   media: MediaOutlet[]
-  players: { id: string; bank: number; positionId: string | null }[]
+  /** the player, as an actor the brain can name and address. The index holds only the
+   *  NPC cast, so the name and the party have to travel with the player entry. */
+  players: { id: string; bank: number; positionId: string | null; name: string; partyCode: string | null }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -498,8 +500,12 @@ function relationshipsOf(world: NpcWorld, npcId: string): Relationship[] {
 }
 
 /** The third party both actors hate — the seed of every "enemy becomes ally" story.
- *  Bounded work: at most 8 enemies are probed, and the shared-hate test is a map lookup. */
-export function findMutualEnemy(world: NpcWorld, npcId: string): string | null {
+ *
+ *  `excludeId` is the actor the truce is being offered to: a man cannot be asked to bury a
+ *  quarrel and turn on the very person he is burying it with, so the addressee is never the
+ *  answer. The candidate is also never the actor himself. Bounded work: at most 8 enemies
+ *  are probed, and the shared-hate test is a map lookup. */
+export function findMutualEnemy(world: NpcWorld, npcId: string, excludeId?: string): string | null {
   const mine = world.relationships.get(npcId)
   if (!mine) return null
   let probed = 0
@@ -509,6 +515,7 @@ export function findMutualEnemy(world: NpcWorld, npcId: string): string | null {
     const theirs = world.relationships.get(enemyId)
     if (!theirs) continue
     for (const [candidate, mirror] of theirs) {
+      if (candidate === npcId || candidate === excludeId) continue
       if (mirror.trust < -50 && (mine.get(candidate)?.trust ?? 0) < -50) return candidate
     }
   }
@@ -587,12 +594,16 @@ export function npcWeekly(npc: Npc, world: NpcWorld): NpcAction[] {
   }
 
   // 3. the relationship ledger --------------------------------------------
+  // The player is an actor too. The index holds only the NPC cast, so without this the
+  // desk's own edges are skipped and no favour can ever be asked of it, no truce offered
+  // to it and no leak aimed at it — the only paper the world can write is a bribe.
+  const player = world.players[0]
   for (const rel of relationshipsOf(world, npc.id)) {
-    const other = world.index.get(rel.npcId)
-    if (!other?.isAlive) continue
+    const other = player && rel.npcId === player.id ? player : world.index.get(rel.npcId)
+    if (!other || ('isAlive' in other && !other.isAlive)) continue
 
     if (rel.trust < -40 && rel.debt === 0 && chanceBp(next, 1500)) {
-      const mutual = findMutualEnemy(world, npc.id)
+      const mutual = findMutualEnemy(world, npc.id, rel.npcId)
       if (mutual) {
         const mutualName = world.index.get(mutual)?.name ?? mutual
         actions.push({

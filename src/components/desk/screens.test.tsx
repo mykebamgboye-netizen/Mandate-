@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+/* node:fs rather than a Vite `?raw` import: this runner does not transform CSS assets, so a
+   `?raw` import of the stylesheet arrives empty and the assertion below would pass on nothing */
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import FolderShell from './FolderShell'
 import PatronsScreen from './PatronsScreen'
@@ -103,6 +106,30 @@ describe('PatronsScreen — the book of owed', () => {
     const html = renderToStaticMarkup(<PatronsScreen patrons={[]} />)
     expect(html).toContain('demo roster — no patron data on file')
     expect(html).toContain('No patron data on file')
+  })
+
+  it('shows the living cast without calling them patrons', () => {
+    const cast = [
+      { id: 'npc-1', name: 'Hajia Rakiya Sule', role: 'Governor', loyalty: 5, trust: 88, theyOweYou: 2_500_000_000, owes: 0 },
+      { id: 'npc-2', name: 'Elder Bekele Oyibo', role: 'Party Chairman', loyalty: 1, trust: -64, theyOweYou: 0, owes: 6_000_000_000, ROI_due_weeks: 0 },
+    ]
+    const html = renderToStaticMarkup(<PatronsScreen patrons={[]} cast={cast} patronageBank={3_834_790_251} />)
+    expect(html).toContain('WHO IS WATCHING')
+    expect(html).toContain('Hajia Rakiya Sule')
+    expect(html).toContain('Elder Bekele Oyibo')
+    /* the number is printed beside the meter, so the dots cannot flatter anyone */
+    expect(html).toContain('trust +88')
+    expect(html).toContain('trust -64')
+    expect(html).toContain('owes you ₦2.50bn')
+    expect(html).toContain('you owe ₦6.00bn')
+    expect(html).toContain('These are not patrons and the dots are not loyalty')
+    expect(html).toContain('data-tone="loyal"')
+    expect(html).toContain('data-tone="angry"')
+  })
+
+  it('renders no cast panel at all before the country has run a week', () => {
+    const html = renderToStaticMarkup(<PatronsScreen patrons={[]} />)
+    expect(html).not.toContain('WHO IS WATCHING')
   })
 })
 
@@ -258,5 +285,42 @@ describe('AtlasScreen — the seats and the century', () => {
     const html = renderToStaticMarkup(<AtlasScreen lives={[]} onRunFor={noop} onTabChange={noop} />)
     expect(html).toContain('No lives on file yet')
     expect(html).toContain('none yet')
+  })
+
+  it('lists the polls still ahead of the desk, soonest first', () => {
+    const polls = [
+      { id: 'state/off-cycle/2029', kind: 'state' as const, label: '2029 — 8 off-cycle governorship contests', date: '2029-11-17', dateLabel: '17 Nov 2029', primaryOpensLabel: '19 Aug 2029', officesUp: 16 },
+      { id: 'lga/2030', kind: 'lga' as const, label: '2030 — 774 council contests', date: '2030-05-18', dateLabel: '18 May 2030', primaryOpensLabel: '17 Feb 2030', officesUp: 774 },
+    ]
+    const html = renderToStaticMarkup(
+      <AtlasScreen lives={[]} polls={polls} onRunFor={noop} onTabChange={noop} />,
+    )
+    expect(html).toContain('THE NEXT POLLS')
+    expect(html).toContain('17 Nov 2029')
+    expect(html).toContain('primaries open 19 Aug 2029')
+    expect(html).toContain('774 seats')
+    /* the soonest poll owns the green edge, so the eye lands on what is actually next */
+    expect(html).toContain('data-tone="done"')
+    expect(html).toContain('next: 17 Nov 2029')
+  })
+
+  it('leaves the poll panel out entirely when no calendar is supplied', () => {
+    const html = renderToStaticMarkup(<AtlasScreen lives={[]} onRunFor={noop} onTabChange={noop} />)
+    expect(html).not.toContain('THE NEXT POLLS')
+  })
+})
+
+describe('the keyboard', () => {
+  /* The audit that preceded this work found the desk had a focus outline on its inputs and
+     nowhere else: every button, tab and row was invisible to Tab. WCAG 2.2 · 2.4.7 is not a
+     style preference, so the rule is pinned here rather than left to survive the next
+     restyle on its own. */
+  it('shows where the focus is on every control the desk ships', () => {
+    const root = readFileSync(new URL('../../styles.css', import.meta.url), 'utf8')
+    expect(root).toContain(':focus-visible')
+    expect(root).toContain('--focus-ring')
+    expect(root).toContain('outline-offset: 2px')
+    /* and it keeps applying to the controls the desk actually renders */
+    expect(root).toMatch(/button[^{]*:focus-visible|:focus-visible/)
   })
 })

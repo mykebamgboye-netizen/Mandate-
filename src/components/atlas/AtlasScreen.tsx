@@ -11,6 +11,7 @@ import FolderShell from '../desk/FolderShell'
 import PositionAtlas from './PositionAtlas'
 import type { BottomTab } from '../desk/BottomNav'
 import type { DeskLevel } from '../desk/FederalHeader'
+import type { PollRow } from '../../living-desk'
 
 export interface AtlasLife {
   id: string
@@ -22,6 +23,8 @@ export interface AtlasLife {
 
 export interface AtlasScreenProps {
   lives: AtlasLife[]
+  /** the polls still ahead, soonest first — the answer to "when is it my turn?" */
+  polls?: PollRow[]
   /** RUN HERE — starts a new life on the seat and keeps every earlier one */
   onRunFor: (positionId: string) => void
   level?: DeskLevel
@@ -34,7 +37,7 @@ export interface AtlasScreenProps {
 }
 
 export function AtlasScreen({
-  lives, onRunFor,
+  lives, polls = [], onRunFor,
   level = 'state', week = 41, capital = 'Abuja', budget = 0,
   onTabChange, onBack, onOpenTreasury,
 }: AtlasScreenProps) {
@@ -56,6 +59,35 @@ export function AtlasScreen({
       onOpenTreasury={onOpenTreasury}
     >
       <PositionAtlas onRunFor={onRunFor} />
+
+      {polls.length > 0 && (
+        <section className="dv2-panel" aria-label="The next polls">
+          <div className="dv2-panel-head">
+            <span className="dv2-panel-title">THE NEXT POLLS</span>
+            <span className="dv2-panel-hint">next: {polls[0]!.dateLabel}</span>
+          </div>
+          <p className="dv2-panel-line">
+            When a seat comes up. Primaries open ninety days before each poll, and taking a
+            seat above this one writes a new life rather than editing this one.
+          </p>
+          <div className="dv2-rows">
+            {polls.map((poll, i) => (
+              <div className="dv2-row" key={poll.id} data-tone={i === 0 ? 'done' : undefined}>
+                <span className="dv2-row-main">
+                  <span className="dv2-row-title">{poll.label}</span>
+                  <span className="dv2-row-line">primaries open {poll.primaryOpensLabel}</span>
+                </span>
+                <span className="dv2-row-facts">
+                  <span className="dv2-row-state">{poll.dateLabel}</span>
+                  <span className="dv2-row-state" data-tone="good">
+                    {poll.officesUp} seat{poll.officesUp === 1 ? '' : 's'}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="dv2-panel" aria-label="The century">
         <div className="dv2-panel-head">

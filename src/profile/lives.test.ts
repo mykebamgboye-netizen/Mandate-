@@ -56,7 +56,8 @@ describe('the lives registry', () => {
     const registry = retireActiveLife(storage, 'lost the ward in 2029')!
     expect(registry.lives).toHaveLength(1)
     expect(registry.lives[0]!.retiredAt).toBe('2026-01-01')
-    expect(registry.lives[0]!.history.at(-1)!.summary).toBe('lost the ward in 2029')
+    const ending = registry.lives[0]!.history
+    expect(ending[ending.length - 1]!.summary).toBe('lost the ward in 2029')
     expect(lifeSummary(registry.lives[0]!)).toContain('lost the ward in 2029')
   })
 
