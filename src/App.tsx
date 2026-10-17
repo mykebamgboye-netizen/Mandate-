@@ -25,7 +25,7 @@ import {
   type SimSnapshot,
 } from './desk-sim'
 import { effectChips } from './profile/prologue'
-import { ensureReferenceOffices, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
+import { ensureReferenceOffices, FALLBACK_OFFICES, postRoute, selectableOffices, stateChoicesFor } from './profile/profile-state'
 import { TIER_LABEL, TIER_ORDER } from './profile/playable-offices'
 import { PatronageStrip } from './PatronageStrip'
 import DeskShell from './components/desk/DeskShell'
@@ -51,9 +51,10 @@ import { GameContext, DEFAULT_SETTINGS, type GameSettings, type GameHooks } from
 import { DocumentView, type DocMarkState } from './DocumentView'
 import AtlasScreen, { type AtlasLife } from './components/atlas/AtlasScreen'
 import { POSITIONS } from './sim/positions'
-import { createNewLife, lifeList, lifeSummary, loadLives } from './profile/lives'
+import { createNewLife, lifeList, lifeSummary, loadLives, currentLife } from './profile/lives'
 import {
   closeLivingWeek, livingCast, loadWorld, seatIdForIdentity, upcomingPolls,
+  restorePlayerFromSave,
   type CastMember, type LivingPlayerInput,
 } from './living-desk'
 import { executeOp } from './desk-sim'
@@ -1106,13 +1107,19 @@ export default function App() {
          a worker. The tray being closed is handed over with its stamps: an approach answered
          on paper is answered to the man who sent it before his Monday is run. A desk that
          cannot reach its storage still closes its week: the world is skipped, never blamed. */
+      /* Restore the player's axes/bank from the on-device life save before the living week
+         runs, so a reload mid-simulation keeps the player's record rather than snapping back to
+         the neutral defaults. */
+      let livingInput = livingInputFor(persist.identity, result.approval)
+      if (livingInput) {
+        restorePlayerFromSave(persist, livingInput, window.localStorage)
+      }
       const living = (() => {
-        const input = livingInputFor(persist.identity, result.approval)
-        if (!input) return null
+        if (!livingInput) return null
         try {
           return closeLivingWeek({
             storage: window.localStorage,
-            player: input,
+            player: livingInput,
             tray: persist.inTray,
             marks: persist.marks,
           })
@@ -1479,7 +1486,7 @@ export default function App() {
         onTabChange={goTab} onOpenTreasury={() => goTab('budget')}
       >
         <PatronsScreen
-          patrons={shellPatrons(persist.identity)}
+          patrons={livingCastNow.length > 0 ? livingCastNow : shellPatrons(persist.identity)}
           cast={livingCastNow}
           patronageBank={persist.identity?.patronageBank}
           seatName={seatName}
@@ -1643,7 +1650,7 @@ export default function App() {
                 />
               ) : onboarding.phase === 'pick-post' ? (
                 <PostStep
-                  offices={selectableOffices(onboarding.offices)}
+                  offices={FALLBACK_OFFICES}
                   onPost={office => setOnboarding(o => {
                     if (!o) return null
                     const route = postRoute(office)

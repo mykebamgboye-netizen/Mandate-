@@ -9,10 +9,24 @@
 //   federal/president — the Federation
 //   state/governor    — the 36 states (the FCT has no governorship: s.299)
 //   fct/minister      — the Federal Capital Territory, served by an appointed Minister
-//   local/chairman    — the 774 LGAs
-
-import type { FederationOffice, Tier } from './types'
+//   local/chairman    — the 774 LGAsimport type { FederationOffice, Tier } from './types'
 import { DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE } from './delta-tutorial'
+import { POSITIONS } from '../sim/positions'
+
+// @mandate SPEC V2.0: first-open picker now shows the full constitutional day-one playable set
+// (1,245 seats: President, VP, 109 Senators, 360 Reps, 774 Chairmen) rather than the four-office
+// curated shortlist.
+export const FALLBACK_OFFICES: FederationOffice[] = POSITIONS
+  .filter(s =>
+    s.id === 'federal/president' ||
+    s.id === 'federal/vice-president' ||
+    s.id.startsWith('federal/senator/') ||
+    s.id.startsWith('federal/rep/') ||
+    s.id.startsWith('lga/'),
+  )
+  .map(s => ({ ...s, playable: true } as FederationOffice))
+export const FALLBACK_OFFICES_COUNT = FALLBACK_OFFICES.length
+
 
 export const PRESIDENT_OFFICE: FederationOffice = {
   id: 'federal/president',
@@ -26,7 +40,6 @@ export const PRESIDENT_OFFICE: FederationOffice = {
   authorityNote: 'ss.130-134 · Commander-in-Chief by convention',
   playable: true,
 }
-
 export const LGA_CHAIRMAN_OFFICE: FederationOffice = {
   id: 'local/chairman',
   tier: 'local',
@@ -40,7 +53,9 @@ export const LGA_CHAIRMAN_OFFICE: FederationOffice = {
   playable: true,
 }
 
-/** The playable set, in the order the picker groups them. */
+/** The canonical playable core — one elected executive per tier, plus the FCT administrator.
+ *  The pickers render a curated shortlist; the full day-one playable set lives in the
+ *  position catalogue and the atlas. */
 export const PLAYABLE_OFFICES: FederationOffice[] = [
   PRESIDENT_OFFICE,
   DELTA_TUTORIAL_OFFICE, // state/governor
@@ -49,7 +64,6 @@ export const PLAYABLE_OFFICES: FederationOffice[] = [
 ].map(o => ({ ...o, playable: true }))
 
 export const TIER_ORDER: Tier[] = ['federal', 'state', 'fct', 'local']
-
 export const TIER_LABEL: Record<string, string> = {
   federal: 'Federal',
   state: 'State',

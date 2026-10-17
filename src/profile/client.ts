@@ -148,7 +148,7 @@ export async function listLgas(stateCode: string): Promise<FederationLga[]> {
 export async function listParties(): Promise<FederationParty[]> {
   const client = publicClient()
   if (!client) {
-    return [{ code: 'APC', name: 'All Progressives Congress', note: 'local fallback' }]
+    return [{ code: 'PA', name: "People's Alliance", note: 'local fallback' }]
   }
   const { data, error } = await client
     .from('federation_parties')
@@ -225,14 +225,14 @@ export async function createProfile(input: {
       ...DEFAULT_AXES,
       ...(input.axes ?? {}),
     }
-    const identity = input.identity
-    const office = input.office
-    const party = input.party
+    const identity = input.identity ?? { name: 'UNKNOWN', stateCode: null, lgaName: null, senatorialDistrict: null, pronouns: null, locale: null, phoneHome: null, altName: null, bio: null, age: null, chosenParty: input.party?.current ?? 'PA' }
+    const office = input.office ?? { tier: 'local', post: 'Local Government Chairman', elected: true, termStart: new Date().toISOString().slice(0, 10), officeId: 'local/chairman' }
+    const party = input.party ?? { current: 'PA', history: [], defectionRisk: 0 }
     const powers = input.powers ?? []
     const patronageBank = input.patronageBank ?? 0
     return {
       id: 'local/' + input.handle,
-      handle: input.handle ?? input.identity.name ?? 'UNKNOWN',
+      handle: input.handle ?? identity.name ?? 'UNKNOWN',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       identity,
@@ -538,7 +538,7 @@ export async function findScenarioByScenarioId(scenarioId: string): Promise<Scen
 export const defaultFederationReference = {
   states: [DELTA_TUTORIAL_STATE] as FederationState[],
   offices: [DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE] as FederationOffice[],
-  parties: [{ code: 'APC', name: 'All Progressives Congress', note: 'local fallback' }] as FederationParty[],
+  parties: [{ code: 'PA', name: "People's Alliance", note: 'local fallback' }] as FederationParty[],
 }
 
 export function defaultScenarioStartState(): ScenarioStartState {

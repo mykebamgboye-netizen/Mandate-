@@ -62,7 +62,7 @@ describe('the office catalogue', () => {
   })
 
   it('the "1,247 day-one playable" slice is 1,245 as constituted', () => {
-    // President + VP + Senators + Reps + LGA Chairmen
+    // 1,245 = 1 Pres + 1 VP + 109 Sen + 360 Reps + 774 Chairmen (FCT has 1 senator per s.48)
     expect(POSITION_COUNTS.playableCore).toBe(1245)
     // the brief's 1,247 only appears if the FCT is given three senators (37 × 3 = 111).
     // The constitution gives the territory one (s.48), so the correct figure is 1,245.

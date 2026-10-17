@@ -8,7 +8,16 @@ import { sheetFromAxes, prologueAxes } from './profile-sheet'
 import { ORIGINS, BRINGERS, FIRST_SCARS } from './prologue'
 import { OPENING_BALANCE } from '../content'
 import { FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE } from './delta-tutorial'
-import { PLAYABLE_OFFICES } from './playable-offices'
+import { PLAYABLE_OFFICES, FALLBACK_OFFICES, FALLBACK_OFFICES_COUNT } from './playable-offices'
+
+// The full day-one playable set is the same shape as PLAYABLE_OFFICES now (FALLBACK_OFFICES
+// is re-exported from playable-offices). Keep PLAYABLE_OFFICES as the import name used by the
+// rest of the file for now, but route it through FALLBACK_OFFICES so pickers show the full
+// constitutional set rather than the four-office curated shortlist.
+const CURATED_PLAYABLE_OFFICES = PLAYABLE_OFFICES
+const FULL_DAY_ONE_PLAYABLE_OFFICES = FALLBACK_OFFICES
+// Re-export from FALLBACK so callers see the full set.
+export { FULL_DAY_ONE_PLAYABLE_OFFICES as PLAYABLE_OFFICES, FALLBACK_OFFICES, FALLBACK_OFFICES_COUNT }
 
 export type OnboardingPhase = 'landing' | 'pick-post' | 'pick-state' | 'pick-lga' | 'prologue' | 'profile-sheet'
 
@@ -108,12 +117,11 @@ export function stateChoicesFor(office: FederationOffice, states: FederationStat
 }
 
 /** The playable offices the picker shows, taken from the live catalogue when it carries the
-    playable flag, and from the canonical set otherwise. */
+    playable flag, and from the full constitutional day-one set otherwise (1,245 seats). */
 export function selectableOffices(offices: FederationOffice[]): FederationOffice[] {
   const flagged = offices.filter(o => o.playable)
   if (flagged.length > 0) return flagged
-  const have = new Set(offices.map(o => o.id))
-  return PLAYABLE_OFFICES.filter(o => have.has(o.id))
+  return FALLBACK_OFFICES
 }
 
 /** The picker must never dead-end on a missing reference row: if the live
@@ -122,7 +130,7 @@ export function selectableOffices(offices: FederationOffice[]): FederationOffice
     resolves to a real office. */
 export function ensureReferenceOffices(offices: FederationOffice[]): FederationOffice[] {
   const have = new Set(offices.map(o => o.id))
-  const required = [...PLAYABLE_OFFICES, FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE]
+  const required = [...PLAYABLE_OFFICES, FCT_MINISTER_OFFICE, DELTA_TUTORIAL_OFFICE, ...FALLBACK_OFFICES]
   return [...offices, ...required.filter(o => !have.has(o.id))]
 }
 
@@ -139,7 +147,9 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
   if (!st) return { ...s, error: 'State not found.' }
   const office = s.offices.find(o => o.id === s.officeId)
   if (!office) return { ...s, error: 'Office not found.' }
-  const party = s.parties.find(p => p.code === 'APC') ?? null
+  // Party label follows the player's own first-open choice first; otherwise fall back
+  // to the local fallback party row (PA), never to a real-party default.
+  const localFallbackParty = s.parties.find(p => p.code === 'PA') ?? null
 
   /* The prologue's axes are deltas on top of the desk you are taking over, not a
      from-scratch slate: the patronage bank must start at the treasury's opening
@@ -171,8 +181,8 @@ export function nextSheetState(s: OnboardingState): OnboardingState {
       st.capital,
       office,
       // party label follows the player's own first-open choice first; otherwise fall back
-      // to the live catalogue's APC row (or null), never to the NPC default.
-      s.partyCode ? s.parties.find(p => p.code === s.partyCode)?.name ?? null : party?.name ?? null,
+      // to the local fallback party (PA), never to a real-party default.
+      s.partyCode ? s.parties.find(p => p.code === s.partyCode)?.name ?? null : localFallbackParty?.name ?? null,
       s.name || 'M. A. Bamgboye',
       s.age || null,
       s.lgaName,

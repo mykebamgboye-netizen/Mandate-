@@ -113,6 +113,23 @@ export function lifeList(storage: StorageLike): SaveState[] {
   return [...registry.lives].reverse()
 }
 
+/** Load the axes and bank for one life from the on-device registry.
+ *  Used by the living desk to restore a player's record across a reload
+ *  (src/living-desk.ts `restorePlayerFromSave`). Returns null when there is
+ *  no registry on file, or no life with that id.
+ */
+export function loadSave(
+  storage: StorageLike,
+  lifeId: string | null | undefined,
+): { axes: SaveState['axes']; bank: SaveState['bank'] } | null {
+  if (!lifeId) return null
+  const registry = loadLives(storage)
+  if (!registry) return null
+  const life = registry.lives.find(l => l.id === lifeId)
+  if (!life) return null
+  return { axes: life.axes, bank: life.bank }
+}
+
 /** A one-line summary of a life for the legacy screen. */
 export function lifeSummary(life: SaveState): string {
   const last = life.history.length ? life.history[life.history.length - 1] : undefined

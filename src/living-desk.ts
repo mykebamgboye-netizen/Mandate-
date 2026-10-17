@@ -37,9 +37,11 @@ import { friendliestOutlet, type MediaOutlet } from './sim/media'
 import { hash32 } from './sim/rng'
 import type { Doc, ClippingDoc, NoteDoc } from './content'
 import type { Axes, LifeEvent, PlayerTurn } from './sim/game-state'
+import type { StorageLike } from './profile/lives'
 import type { GazetteStory } from './types'
 
 export const LIVING_KEY = 'mandate.living.v1'
+
 
 /** The most papers one week may put on the tray. A desk is not a feed. */
 export const LIVING_PAPER_CAP = 6
@@ -247,6 +249,28 @@ function syncPlayer(world: LivingWorld, input: LivingPlayerInput): void {
       popularity: input.approval ?? prior?.axes.popularity ?? 50,
     },
   }]
+}
+
+/** Before ensureWorld opens the world, restore any player axes/bank that were previously
+ *  persisted for this life. This bridges the on-device lives registry (src/profile/lives.ts)
+ *  and the living world: a player who reloads mid-simulation keeps their axes and bank
+ *  across the reload rather than snapping back to the neutral defaults.
+ */
+export function restorePlayerFromSave(
+  persist: {
+    currentLifeId?: string | null
+  },
+  player: {
+    axes?: Partial<Axes>
+    bank?: number
+  },
+  storage: StorageLike,
+): void {
+  const saved = loadSave(storage, persist.currentLifeId)
+  if (saved) {
+    player.axes = saved.axes
+    player.bank = saved.bank
+  }
 }
 
 /** Load this desk's world, or open one. Called once per session, then advanced. */

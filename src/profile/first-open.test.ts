@@ -155,10 +155,10 @@ describe('first-open boot does not serve the NPC as the player record', () => {
     } as any
     const sheet = nextSheetState(noParty).sheet
     expect(sheet).toBeTruthy()
-    expect(sheet!.party).toBe('All Progressives Congress')
-    // No party chosen → nextSheetState falls back to the catalogue's APC row name, and the
-    // sheet stores that resolved name as partyCode (not null).
-    expect(sheet!.partyCode).toBe('All Progressives Congress')
+    expect(sheet!.party).toBe("People's Alliance")
+    // No party chosen → nextSheetState falls back to the catalogue's 'PA' (People's Alliance)
+    // row name, and the sheet stores that resolved name as partyCode (not null).
+    expect(sheet!.partyCode).toBe("People's Alliance")
   })
 
   it('nextSheetState keeps the player’s own name/age/bio/pronouns, not the NPC defaults', () => {

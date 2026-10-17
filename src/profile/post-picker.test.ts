@@ -6,7 +6,7 @@ import { postRoute, selectableOffices, stateChoicesFor, startingOfficeForState }
 import { sheetFromAxes } from './profile-sheet'
 import { normalizeAxes } from './schema'
 import { FCT_MINISTER_OFFICE as FCT_MIN } from './delta-tutorial'
-import { PLAYABLE_OFFICES, PRESIDENT_OFFICE, LGA_CHAIRMAN_OFFICE, TIER_ORDER } from './playable-offices'
+import { FALLBACK_OFFICES_COUNT, PLAYABLE_OFFICES, PRESIDENT_OFFICE, LGA_CHAIRMAN_OFFICE, TIER_ORDER } from './playable-offices'
 import { DELTA_TUTORIAL_OFFICE, FCT_MINISTER_OFFICE } from './delta-tutorial'
 import type { FederationState } from './types'
 
@@ -36,7 +36,7 @@ describe('the playable post set', () => {
 
   it('falls back to the canonical set when no row is flagged (un-migrated database)', () => {
     const unmarked = PLAYABLE_OFFICES.map(({ playable: _p, ...rest }) => rest)
-    expect(selectableOffices(unmarked)).toHaveLength(4)
+    expect(selectableOffices(unmarked)).toHaveLength(FALLBACK_OFFICES_COUNT)
   })
 })
 

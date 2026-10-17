@@ -93,7 +93,7 @@ export function deltaTutorialProfile(identity: Partial<ProfileIdentity> = {}): P
       altName: null,
       bio: null,
       age: 52,
-      chosenParty: 'APC',
+      chosenParty: 'PA',
       ...identity,
     },
     office: {
@@ -104,7 +104,7 @@ export function deltaTutorialProfile(identity: Partial<ProfileIdentity> = {}): P
       officeId: 'state/governor',
     },
     party: {
-      current: 'APC',
+      current: 'PA',
       history: [],
       defectionRisk: 0.18,
     },
