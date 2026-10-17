@@ -37,8 +37,12 @@ export async function signInWithPassword(email: string, password: string) {
   return { data, error }
 }
 
-/** Sign up with email + password. Creates a Supabase auth user; the app creates the
- *  profiles row separately (with id = auth.uid()) once the user is confirmed. */
+/**
+ * Sign up with email + password. Straight sign-up/sign-in — no email confirmation step:
+ * the Supabase project has confirmations disabled, so signUp returns a session and
+ * auth.uid() immediately. On the rare path where the provider still wants a confirm, we
+ * sign the just-created account in with its password so the session is available now.
+ */
 export async function signUpWithPassword(email: string, password: string) {
   const client = publicClient()
   if (!client) return { data: null, error: new Error('Supabase not configured') }
@@ -63,8 +67,10 @@ export async function signOut() {
   return { error }
 }
 
-/** Wait until a session is present (or timeout). Useful after sign-up before creating
- *  the profiles row, so auth.uid() is available. */
+/**
+ * Wait until a session is present (or timeout). Left for other callers — the sign-up
+ * path no longer needs it, since signUpWithPassword now resolves the session itself.
+ */
 export async function waitForAuth(timeoutMs = 10_000): Promise<{ user: Awaited<ReturnType<typeof getCurrentUser>>; elapsed: number }> {
   const client = publicClient()
   if (!client) return { user: null, elapsed: 0 }
